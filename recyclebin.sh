@@ -294,6 +294,7 @@ function list_recycled(){
     printf "Total size: %s (%d bytes)\n" "$total_hr" "$total_bytes"
 
 }
+
 function restore_file() {
    
     local lookup="$1"
@@ -1191,7 +1192,7 @@ function display_help(){ #using teacher suggestion(cat << EOF)
         RETENTION_DAYS Number of days to keep items before purging (default: 30)
 
     Metadata format (pipe '|' delimited):
-        deletion_timestamp | uuid | basename | original_path | recycle_path | size | type | permissions | owner | group | atime | mtime | ctime
+        ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
 
 
 EOF
