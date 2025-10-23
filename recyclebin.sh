@@ -294,7 +294,6 @@ function list_recycled(){
     printf "Total size: %s (%d bytes)\n" "$total_hr" "$total_bytes"
 
 }
-
 function restore_file() {
    
     local lookup="$1"
@@ -556,23 +555,19 @@ function search_recycled(){
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
 
-        # skip CSV header if present(since i dont want to match the header)
-        #check initialize function for the header format( it starts with deletion_timestamp)
+        # skip CSV header if present
         case "$line" in
-            deletion_timestamp*|deletion_timestamp,* ) continue ;;
+            ID* ) continue ;;
         esac
 
-        # expected format from the delete_file function:
-        # deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
+        # expected format for lines: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
-        # If base_name is empty, derive from original path (rare)
-        [ -z "$base_name" ] && base_name="$(basename "$orig_path")"
-
+        # For search, we want to match by name or orig_path
         local matched=0
 
-        #actual searching logic using grep (copilot recomended using the flags -q for quiet and -- for end of options)
-        if [ -n "$base_name" ] && printf '%s\n' "$base_name" | grep $grep_opts -q -- "$search_expr"; then
+        #actual searching logic using grep (copilot recommended using the flags -q for quiet and -- for end of options)
+        if [ -n "$name" ] && printf '%s\n' "$name" | grep $grep_opts -q -- "$search_expr"; then
             matched=1
         fi
         if [ $matched -eq 0 ] && [ -n "$orig_path" ] && printf '%s\n' "$orig_path" | grep $grep_opts -q -- "$search_expr"; then
@@ -581,14 +576,13 @@ function search_recycled(){
 
         if [ $matched -eq 1 ]; then
             # convert timestamp ddmmyyyyHHMMSS -> "YYYY-MM-DD HH:MM:SS" (if matches expected format)
-            local del_date
-            if [[ $ts =~ ^[0-9]{14}$ ]]; then
-                del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
+            if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+                del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             else
-                del_date="$ts"
+                del_date_fmt="$del_date"
             fi
-            local uid_short="${uuid:0:8}" #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)
-            matches+=( "$uid_short|$base_name|$orig_path|$recycle_path|$del_date|$size|$ftype|$uuid" )
+            local uid_short="${id:0:8}"
+            matches+=( "$uid_short|$name|$orig_path|$del_date_fmt|$size|$ftype|$perms|$owner|$id" )
         fi
     done < "$metadata_file"
 
@@ -598,12 +592,12 @@ function search_recycled(){
     fi
 
     #print results in a table format (showing additional info)
-    printf "%-10s %-25s %-50s %-20s %-8s %-8s\n" "ID" "Name" "Original Path" "Deleted" "Size" "Type"
-    printf "%-10s %-25s %-50s %-20s %-8s %-8s\n" "----------" "-------------------------" "--------------------------------------------------" "--------------------" "--------" "------"
+    printf "%-10s %-25s %-50s %-20s %-8s %-8s %-8s %-8s\n" "ID" "Name" "Original Path" "Deleted" "Size" "Type" "Perms" "Owner"
+    printf "%-10s %-25s %-50s %-20s %-8s %-8s %-8s %-8s\n" "----------" "-------------------------" "--------------------------------------------------" "--------------------" "--------" "------" "------" "------"
 
     for entry in "${matches[@]}"; do
-        IFS='|' read -r id name orig rec del size ftype uuid <<< "$entry"
-        printf "%-10s %-25.25s %-50.50s %-20s %-8s %-8s\n" "$id" "${name:-}" "${orig:-}" "${del:-}" "${size:-}" "${ftype:-}"
+        IFS='|' read -r id name orig_path del_date size ftype perms owner fullid <<< "$entry"
+        printf "%-10s %-25.25s %-50.50s %-20s %-8s %-8s %-8s %-8s\n" "$id" "${name:-}" "${orig_path:-}" "${del_date:-}" "${size:-}" "${ftype:-}" "${perms:-}" "${owner:-}"
     done
 
     printf "\nTotal matches: %d\n" "${#matches[@]}"
@@ -667,21 +661,22 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
         case "$line" in 
-            deletion_timestamp* ) continue;;
+            ID* ) continue;;
         esac
-        # expected format from the delete_file function:
-        # deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
-        [ -z "$uuid" ] && continue
-        [ -z "$recycle_path" ] && continue
+        # expected format: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+        [ -z "$id" ] && continue
+
+        # reconstruct recycle_path to find the file in the recycle bin
+        recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
 
         if [ "$mode" = "all" ]; then
-            lines_to_delete+=( "$line" )
+            lines_to_delete+=( "$id|$name|$orig_path|$del_date|$size|$ftype|$perms|$owner|$recycle_path" )
         else 
             local base_name_actual
             base_name_actual="$(basename "$orig_path")"
-            if [ "$idArg" = "$uuid" ] || [[ "$uuid" == "$idArg"* ]] || [ "$idArg" = "$base_name_actual" ] || [ "$idArg" = "$orig_path" ]; then
-                lines_to_delete+=( "$line" )
+            if [ "$idArg" = "$id" ] || [[ "$id" == "$idArg"* ]] || [ "$idArg" = "$base_name_actual" ] || [ "$idArg" = "$orig_path" ]; then
+                lines_to_delete+=( "$id|$name|$orig_path|$del_date|$size|$ftype|$perms|$owner|$recycle_path" )
             fi
         fi
     done < "$METADATA_LOG"
@@ -698,12 +693,12 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     local to_delete=()
     if [ "$mode" = "single" ] && [ ${#lines_to_delete[@]} -gt 1 ] && [ "$force" != "true" ]; then
         echo "Multiple matches found:"
-        for i in "${!lines_to_delete[@]}"; do #remember to use ! for the indexes
-            IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "${lines_to_delete[i]}"
-            if [[ $ts =~ ^[0-9]{14}$ ]]; then
-                del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
+        for i in "${!lines_to_delete[@]}"; do
+            IFS='|' read -r id name orig_path del_date size ftype perms owner recycle_path <<< "${lines_to_delete[i]}"
+            if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+                del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             else
-                del_date="$ts"
+                del_date_fmt="$del_date"
             fi
             size_bytes=0
             if [ -e "$recycle_path" ]; then
@@ -719,17 +714,17 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
                 fi
             fi
             hr="$(human_readable "$size_bytes")"
-            echo "[$i] ID=${uuid:0:8}  Name=$base_name  Deleted=$del_date  Size=$hr  RecyclePath=$recycle_path"
+            echo "[$i] ID=${id:0:8}  Name=$name  Deleted=$del_date_fmt  Size=$hr  RecyclePath=$recycle_path"
         done
 
         while true; do
-                read -rp "Select index to delete (or 'c' to cancel): " sel
-                [ "$sel" = "c" ] && echo "Cancelled." && return 0
-                if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 0 ] && [ "$sel" -lt "${#lines_to_delete[@]}" ]; then
-                    to_delete+=( "${lines_to_delete[$sel]}" )
-                    break
-                fi
-                echo "Invalid selection."
+            read -rp "Select index to delete (or 'c' to cancel): " sel
+            [ "$sel" = "c" ] && echo "Cancelled." && return 0
+            if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 0 ] && [ "$sel" -lt "${#lines_to_delete[@]}" ]; then
+                to_delete+=( "${lines_to_delete[$sel]}" )
+                break
+            fi
+            echo "Invalid selection."
         done
     else
         to_delete=( "${lines_to_delete[@]}" )
@@ -739,9 +734,9 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     local deleted_count=0
     local deleted_bytes=0
     local failed=()
-    local removed_uuids=()
+    local removed_ids=()
     for line in "${to_delete[@]}"; do
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
+        IFS='|' read -r id name orig_path del_date size ftype perms owner recycle_path <<< "$line"
         #calculating size before deletion
         size_bytes=0
         if [ -e "$recycle_path" ]; then
@@ -764,40 +759,37 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
             if rm -rf -- "$recycle_path"; then
                 deleted_count=$((deleted_count + 1))
                 deleted_bytes=$((deleted_bytes + size_bytes))
-                removed_uuids+=( "$uuid" )
-                echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED $uuid -> $recycle_path size=${size_bytes}" >> "$LOG" 2>/dev/null
+                removed_ids+=( "$id" )
+                echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED $id -> $recycle_path size=${size_bytes}" >> "$LOG" 2>/dev/null
             else
-                failed+=( "$uuid|$recycle_path|failed_rm" )
-                echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_DELETE $uuid -> $recycle_path" >> "$LOG" 2>/dev/null
+                failed+=( "$id|$recycle_path|failed_rm" )
+                echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_DELETE $id -> $recycle_path" >> "$LOG" 2>/dev/null
             fi
         else
-            #troubleshooting case: (bit of overkill but whatever)
             # file already missing on filesystem - treat as removed but still remove metadata
-            removed_uuids+=( "$uuid" )
+            removed_ids+=( "$id" )
             deleted_count=$((deleted_count + 1))
             deleted_bytes=$((deleted_bytes + size_bytes))
-            echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED_META_ONLY $uuid -> $recycle_path (file missing) size=${size_bytes}" >> "$LOG" 2>/dev/null
+            echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED_META_ONLY $id -> $recycle_path (file missing) size=${size_bytes}" >> "$LOG" 2>/dev/null
         fi
     done
 
-    #(done by copilot: metadata log update) REVIEW
-    # Update metadata.log: remove lines matching removed_uuids
-    if [ ${#removed_uuids[@]} -gt 0 ]; then
+    # Update metadata.log: remove lines matching removed_ids
+    if [ ${#removed_ids[@]} -gt 0 ]; then
         tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/empty.XXXXXXXX")" || tmpf="/tmp/empty.$$"
-        # build awk filter: print lines that do NOT have uuid in the removed set
-        awk_script='BEGIN{FS=OFS="|"} { if ($0 ~ /^deletion_timestamp/) { print; next } keep=1; for (i in ids) if ($2==ids[i]) { keep=0; break } if (keep) print }'
-        # write ids as awk array initialization
-        awk_init=""
-        for i in "${!removed_uuids[@]}"; do
-            u="${removed_uuids[$i]}"
-            awk_init+="ids[$((i+1))] = \"$u\"; "
-        done
-        # run awk with init
-        awk "$awk_init $awk_script" "$METADATA_LOG" > "$tmpf" 2>/dev/null && mv "$tmpf" "$METADATA_LOG" || {
+        awk -F'|' -v ids="$(IFS=,; echo "${removed_ids[*]}")" '
+            BEGIN {
+                split(ids, arr, ",");
+                for (i in arr) idset[arr[i]] = 1;
+            }
+            $1 == "ID" { print; next }
+            !($1 in idset) { print }
+        ' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
             echo "Warning: failed to update metadata log; metadata may still reference deleted items."
             [ -f "$tmpf" ] && rm -f "$tmpf"
         }
     fi
+
     #summary 
     echo 
     echo "Deletion summary:"
@@ -807,7 +799,6 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     echo "  Total space freed: $(human_readable "$deleted_bytes") ($deleted_bytes bytes)"
     if [ ${#failed[@]} -gt 0 ]; then
         echo "  Failures: ${#failed[@]}"
-        #copilot suggested this way of displaying failures(revise)
         for e in "${failed[@]}"; do
             IFS='|' read -r uu rec why <<< "$e"
             echo "    $uu -> $rec  ($why)"
@@ -816,6 +807,7 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
 
     return 0
 }
+
 function show_statistics(){
     local recycle_bin="$RECYCLE_BIN"
     local metadata_file="$METADATA_LOG"
@@ -855,12 +847,12 @@ function show_statistics(){
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
         case "$line" in 
-            deletion_timestamp* ) continue;;
+            ID* ) continue;;
         esac
 
-        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
-        [ -z "$uuid" ] && continue
+        # expected format: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+        [ -z "$id" ] && continue
 
         total=$((total + 1))
         size=${size:-0}
@@ -877,10 +869,10 @@ function show_statistics(){
             files=$((files + 1))
         fi
 
-        # if ts matches expected DDMMYYYYHHMMSS, build sortable key YYYYMMDDHHMMSS and keep ISO form
-        if [[ $ts =~ ^[0-9]{14}$ ]]; then
-            key="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
-            iso="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
+        # if del_date matches expected DDMMYYYYHHMMSS, build sortable key YYYYMMDDHHMMSS and keep ISO form
+        if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+            key="${del_date:4:4}${del_date:2:2}${del_date:0:2}${del_date:8:2}${del_date:10:2}${del_date:12:2}"
+            iso="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             keys+=( "${key}|${iso}" )
         fi
 
@@ -905,12 +897,12 @@ function show_statistics(){
 
     local percent=0
     if [ "$quota_bytes" -gt 0 ]; then
-        percent=$(( (total_bytes * 100) / quota_bytes ))
+        percent=$(echo "scale=2; ($total_bytes*100)/$quota_bytes" | bc)
     fi
     local avg=$(( total_bytes / total ))
 
     echo "Total items: $total"
-    printf "Total size: %s (%d bytes) — quota: %dMB (%d%%)\n" "$(human_readable "$total_bytes")" "$total_bytes" "$max_mb" "$percent"
+    printf "Total size: %s (%d bytes) — quota: %dMB (%s%%)\n" "$(human_readable "$total_bytes")" "$total_bytes" "$max_mb" "$percent"
     echo "Files: $files  Directories: $dirs"
     [ -n "$oldest_ts" ] && echo "Oldest item: $oldest_ts" || echo "Oldest item: N/A"
     [ -n "$newest_ts" ] && echo "Newest item: $newest_ts" || echo "Newest item: N/A"
@@ -954,29 +946,31 @@ function autocleanup(){
     local processed=0
     local removed_count=0
     local bytes_removed=0
-    local -a uuids_removed=()
+    local -a ids_removed=()
     local -a failed=()
 
     while IFS= read -r line || [ -n "$line" ]; do 
         [ -z "$line" ] && continue
         case "$line" in
-            deletion_timestamp* ) continue ;;
+            ID* ) continue ;;
         esac
-        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
-        [ -z "$uuid" ] && continue
+        # expected format: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+        [ -z "$id" ] && continue
         processed=$((processed + 1))
 
-        # Parse timestamp to sortable YYYYMMDDHHMMSS
+        # Parse deletion date to sortable YYYYMMDDHHMMSS
         local item_date
-        if [[ $ts =~ ^[0-9]{14}$ ]]; then
-            item_date="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
+        if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+            item_date="${del_date:4:4}${del_date:2:2}${del_date:0:2}${del_date:8:2}${del_date:10:2}${del_date:12:2}"
         else
             continue
         fi
 
         # Only remove if older than threshold
         if [[ "$item_date" < "$threshold_date" ]]; then
+            # Reconstruct recycle_path
+            recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
             # Calculate size before removal
             local size_bytes="${size:-0}"
             if [ -n "$recycle_path" ] && [ -e "$recycle_path" ]; then
@@ -997,12 +991,12 @@ function autocleanup(){
                 if rm -rf -- "$recycle_path"; then
                     removed_count=$((removed_count + 1))
                     bytes_removed=$((bytes_removed + size_bytes))
-                    uuids_removed+=( "$uuid" )
+                    ids_removed+=( "$id" )
                 else
-                    failed+=( "$uuid|$recycle_path|remove_failed" )
+                    failed+=( "$id|$recycle_path|remove_failed" )
                 fi
             else
-                uuids_removed+=( "$uuid" )
+                ids_removed+=( "$id" )
                 removed_count=$((removed_count + 1))
                 bytes_removed=$((bytes_removed + size_bytes))
             fi
@@ -1010,15 +1004,15 @@ function autocleanup(){
     done < "$metadata_file"
 
     #updating the metadata log file
-    if [ ${#uuids_removed[@]} -gt 0 ]; then
+    if [ ${#ids_removed[@]} -gt 0 ]; then
         tmpf="$(mktemp "${recycle_bin:-/tmp}/cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
         while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
-            case "$line" in deletion_timestamp* ) echo "$line" >> "$tmpf"; continue ;; esac
-            IFS='|' read -r ts uuid rest <<< "$line"
+            case "$line" in ID* ) echo "$line" >> "$tmpf"; continue ;; esac
+            IFS='|' read -r id rest <<< "$line"
             local skip=0
-            for u in "${uuids_removed[@]}"; do
-                if [ "$u" = "$uuid" ]; then skip=1; break; fi
+            for u in "${ids_removed[@]}"; do
+                if [ "$u" = "$id" ]; then skip=1; break; fi
             done
             if [ "$skip" -eq 0 ]; then echo "$line" >> "$tmpf"; fi
         done < "$metadata_file"
@@ -1042,7 +1036,7 @@ function autocleanup(){
     fi
 }
 
-function check_quota(){
+function check_quota(){ #when reached ask if u want to call the autocleanup to delete the oldest file
     local config_file="$CONFIG"
     local recycle_dir="$RECYCLE_BIN"
     local metadata_file="$METADATA_LOG"
@@ -1070,11 +1064,11 @@ function check_quota(){
     local total_size=0
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
-            deletion_timestamp* ) continue ;;
+            ID* ) continue ;;
         esac
-        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
-        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
-        [ -z "$uuid" ] && continue
+        # expected format: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+        [ -z "$id" ] && continue
         #validating size and defaulting to 0
         if ! [[ "$size" =~ ^[0-9]+$ ]]; then
             size=0
@@ -1192,7 +1186,7 @@ function display_help(){ #using teacher suggestion(cat << EOF)
         RETENTION_DAYS Number of days to keep items before purging (default: 30)
 
     Metadata format (pipe '|' delimited):
-        ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
+        deletion_timestamp | uuid | basename | original_path | recycle_path | size | type | permissions | owner | group | atime | mtime | ctime
 
 
 EOF
