@@ -3,6 +3,30 @@
 
 #TODO: add header, add comments to functions, finish doing the functions, write a test script and a readme file 
 #in the readme explain what all of the metadad bits are 
+
+#helper function for human readable bytes
+function human_readable() {
+        local bytes=$1
+        if [ "$bytes" -lt 1024 ]; then
+            echo "${bytes}B"
+        elif [ "$bytes" -lt $((1024*1024)) ]; then
+            printf "%dKB" $((bytes / 1024))
+        elif [ "$bytes" -lt $((1024*1024*1024)) ]; then
+            printf "%dMB" $((bytes / 1024 / 1024))
+        else
+            printf "%dGB" $((bytes / 1024 / 1024 / 1024))
+        fi
+}
+
+
+function generate_unique_id() {
+    local timestamp=$(date +%s%N)
+    local random=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -
+    n 1)
+    echo "${timestamp}_${random}"
+}
+
+
 function initialize_recyclebin() {
     RECYCLE_BIN="$HOME/.recycle_bin"
     FILES_DIR="$RECYCLE_BIN/files"
@@ -20,7 +44,7 @@ function initialize_recyclebin() {
 
     # header: deletion_timestamp,uuid,original_path,recycle_path,permissions,owner,group,atime,mtime,ctime
     if [ ! -f "$METADATA_LOG" ] || [ ! -s "$METADATA_LOG" ]; then
-        if ! printf 'deletion_timestamp,uuid,original_path,recycle_path,permissions,owner,group,atime,mtime,ctime\n' > "$METADATA_LOG"; then
+        if ! printf "ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER\n" > "$METADATA_LOG"; then
             echo "ERROR: Unable to create $METADATA_LOG"
             return 1
         fi
@@ -93,6 +117,7 @@ function delete_file(){
         abs_path="$(realpath "$path")" 
         base_name="$(basename "$path")"
         uuid_str="$(uuidgen)"
+        uid_short="${uuid_str:0:8}" #after doing the other functions i realized its better to use a shorter id 
         ts="$(date +%d%m%Y%H%M%S)"
         recycle_name="${base_name}_${uuid_str}"
         dest_path="$FILES_DIR/$recycle_name"
@@ -103,16 +128,14 @@ function delete_file(){
         perms=$(stat -c '%a' "$path")
         owner=$(stat -c '%U' "$path")
         group=$(stat -c '%G' "$path")
-        atime=$(stat -c '%X' "$path") #last acess time
-        mtime=$(stat -c '%Y' "$path") #last modification time
-        ctime=$(stat -c '%Z' "$path") #last change time
+       
 
 
-        #getting file size and type (done by copilot)
+        #getting file size and type (used copilot help)
         if [ -d "$path" ]; then
             ftype="directory"
             if du -sb "$path" >/dev/null 2>&1; then
-                size=$(du -sb "$path" | cut -f1)
+                size=$(du -sb "$path" | cut -f1) #cut getsd me the first field which is the size
             else
                 size_kb=$(du -s "$path" | cut -f1)
                 size=$((size_kb * 1024))
@@ -127,7 +150,7 @@ function delete_file(){
 
         if mv -- "$path" "$dest_path"; then
             echo "Recycled: $abs_path -> $dest_path"
-            echo "$ts|$uuid_str|$base_name|$abs_path|$dest_path|$size|$ftype|$perms|$owner_group|$atime|$mtime|$ctime" >> "$METADATA_LOG" || \
+             echo "$uid_short|$base_name|$abs_path|$ts|$size|$ftype|$perms|$owner" >> "$METADATA_LOG" || \
             echo "Warning: failed to write metadata for $path"
             echo "$(date +"%Y-%m-%d %H:%M:%S") MOVED $abs_path -> $dest_path size=${size} type=${ftype} uuid=${uuid_str}" >> "$LOG" 2>/dev/null
         else
@@ -165,22 +188,6 @@ function list_recycled(){
         return 0
     fi
 
-    #helper function for human readable bytes
-    human_readable() {
-        local bytes=$1
-        if [ "$bytes" -lt 1024 ]; then
-            echo "${bytes}B"
-        elif [ "$bytes" -lt $((1024*1024)) ]; then
-            printf "%dKB" $((bytes / 1024))
-        elif [ "$bytes" -lt $((1024*1024*1024)) ]; then
-            printf "%dMB" $((bytes / 1024 / 1024))
-        else
-            printf "%dGB" $((bytes / 1024 / 1024 / 1024))
-        fi
-    }
-
-   
-
     entries=()
     total_count=0
     total_bytes=0
@@ -190,21 +197,34 @@ function list_recycled(){
         #skip empty lines
         [ -z "$line" ] && continue
 
+        #skip the header
+        case "$line" in
+            ID* ) continue ;;
+        esac
+
         # expected format from the delete_file function:
-        IFS='|' read -r ts uuid orig_path rec_path perms owner group atime mtime ctime <<< "$line"
+        # id|name|orig_path|del_date|size|ftype|perms|owner
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
-    
+        recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+
         # only include items that currently exist in the recycle bin
-        [ -e "$rec_path" ] || continue
+        [ -e "$recycle_path" ] || continue
 
-        # size: files -> stat, directories -> du -sk (KB) converted to bytes using integer math (no awk)(done by copilot)
-       if du -sb "$rec_path"; then
-        size_bytes=$(du -sb "$rec_path" | cut -f1)
+        # size: files -> stat, directories -> du -sk (KB) converted to bytes using integer math 
+        if [ -d "$recycle_path" ]; then
+            if du -sb "$recycle_path" >/dev/null 2>&1; then
+                size_bytes=$(du -sb "$recycle_path" | cut -f1)
+            else
+                echo "du failed on $recycle_path" >&2
+                size_bytes=0
+            fi
         else
-            echo "du failed on $rec_path" >&2
-            size_bytes=0
+            size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
         fi
 
+
+        size_hr="$(human_readable "$size_bytes")"
 
         # convert timestamp ddmmyyyyHHMMSS -> "YYYY-MM-DD HH:MM:SS" (if matches expected format)
         if [[ $ts =~ ^[0-9]{14}$ ]]; then
@@ -213,14 +233,15 @@ function list_recycled(){
             del_date="$ts"
         fi
 
-        uid_short="${uuid:0:8}" #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)
+        id_short="${uuid:0:8}" #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)(why i changed the deletefunction too)
         name="$(basename "$orig_path")"
         size_hr="$(human_readable "$size_bytes")"
 
-        # store an entry with this format: uid_short|name|del_date|size_bytes|size_hr|uuid|orig_path|rec_path|perms|owner|group|atime|mtime|ctime
-        entries+=( "$uid_short|$name|$del_date|$size_bytes|$size_hr|$uuid|$orig_path|$rec_path|$perms|$owner|$group|$atime|$mtime|$ctime" )
+        # store an entry with this format: $id|$name|$del_date|$size|$size_hr|$ftype|$perms|$owner|$orig_path
+        entries+=( "$uid_short|$name|$del_date|$size_bytes|$size_hr|$ftype|$perms|$owner|$orig_path|$id|$recycle_path" )
         total_count=$(( total_count + 1 ))
         total_bytes=$(( total_bytes + size_bytes ))
+
     done < "$METADATA_LOG"
 
     if [ ${#entries[@]} -eq 0 ]; then
@@ -228,7 +249,7 @@ function list_recycled(){
         return 0
     fi
 
-    # choose sort option (date: newest first) (help of copilot)
+    # choose sort option (date: newest first thats why i put the r flag for reverse order, the n flag is for numeric so the size is done largest first)
     case "$sort_by" in
         name) sort_args=(-t'|' -k2,2) ;;          
         size) sort_args=(-t'|' -k4,4nr) ;;        
@@ -240,33 +261,31 @@ function list_recycled(){
     esac
 
     if [ "$detailed" -eq 0 ]; then
-        #header of the compact table when view set to normal
-        printf "%-10s %-25s %-20s %-8s\n" "ID" "Name" "Deleted" "Size"
-        printf "%-10s %-25s %-20s %-8s\n" "----------" "-------------------------" "--------------------" "--------"
-
-        # sort and print
-        printf "%s\n" "${entries[@]}" | sort "${sort_args[@]}" | while IFS='|' read -r uid_short name del_date size_bytes size_hr _rest; do
-            printf "%-10s %-25.25s %-20s %-8s\n" "$uid_short" "$name" "$del_date" "$size_hr"
+        # Compact table view
+        printf "%-10s %-25s %-20s %-12s\n" "ID" "Filename" "Deleted" "Size"
+        printf "%-10s %-25s %-20s %-12s\n" "----------" "-------------------------" "--------------------" "------------"
+        printf "%s\n" "${entries[@]}" | sort "${sort_args[@]}" | while IFS='|' read -r id_short name del_date size_bytes size_hr _ftype _perms _owner _orig_path _id _recycle_path; do
+            printf "%-10s %-25.25s %-20s %-12s\n" "$id_short" "$name" "$del_date" "$size_hr"
         done
     else
-        # detailed view
+        # Detailed view
         printf "Detailed view of recycled items (sorted by %s):\n\n" "$sort_by"
-        printf "%s\n" "${entries[@]}" | sort "${sort_args[@]}" | while IFS='|' read -r uid_short name del_date size_bytes size_hr uuid orig_path rec_path perms owner group atime mtime ctime; do
-            printf "UUID: %s\n" "$uuid"
-            printf "ID (short): %s\n" "$uid_short"
-            printf "Name: %s\n" "$name"
+        printf "%s\n" "${entries[@]}" | sort "${sort_args[@]}" | while IFS='|' read -r id_short name del_date size_bytes size_hr ftype perms owner orig_path id recycle_path; do
+            printf "Unique ID: %s\n" "$id"
+            printf "Display ID: %s\n" "$id_short"
+            printf "Original filename: %s\n" "$name"
             printf "Original path: %s\n" "$orig_path"
-            printf "Recycle path: %s\n" "$rec_path"
+            printf "Recycle path: %s\n" "$recycle_path"
             printf "Deleted: %s\n" "$del_date"
             printf "Size: %s (%d bytes)\n" "$size_hr" "$size_bytes"
+            printf "Type: %s\n" "$ftype"
             printf "Permissions: %s\n" "$perms"
-            printf "Owner: %s   Group: %s\n" "$owner" "$group"
-            printf "Accessed: %s   Modified: %s   Changed: %s\n" "$atime" "$mtime" "$ctime"
+            printf "Owner: %s\n" "$owner"
             printf "----\n"
         done
     fi
 
-    # totals
+    # totals(extra)
     total_hr="$(human_readable "$total_bytes")"
     echo
     printf "Total items: %d\n" "$total_count"
@@ -473,6 +492,7 @@ function search_recycled(){
     local case_insensitive=0
     local pattern
 
+    # argument parsing and help
     while [[ $# -gt 0 ]]; do 
         case "$1" in 
             -i|--ignore-case)
@@ -494,7 +514,7 @@ function search_recycled(){
     #remaining arguments are the pattern now
     pattern="$*"
 
-    if [ -z "$pattern" ]: then 
+    if [ -z "$pattern" ]; then 
         echo "Usage: search_recycled [-i|--ignore-case] <pattern>"
         return 1
     fi
@@ -509,17 +529,17 @@ function search_recycled(){
         return 1
     fi
 
+    # set up grep style depending on pattern type
     local search_expr
     local mode_flag
     if [[ "$pattern" == *"*"* ]]; then 
         #converting the * into .* for regex use
         search_expr="${pattern//\*/.*}"
-        mode_flag= "-E" #-E, --extended-regexp     PATTERNS are extended regular expressions
+        mode_flag="-E" #-E, --extended-regexp     PATTERNS are extended regular expressions
     else
         search_expr="$pattern"
         mode_flag="-F" #-F, --fixed-strings       PATTERNS are strings
     fi
-
 
     #building the grep options (case insensitive or not)
     local grep_opts="$mode_flag"
@@ -528,6 +548,8 @@ function search_recycled(){
     fi
 
     local matches=()
+
+    # read metadata lines one by one
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
 
@@ -537,40 +559,33 @@ function search_recycled(){
             deletion_timestamp*|deletion_timestamp,* ) continue ;;
         esac
 
-        IFS='|' read -ra fields <<< "$line" #(-a flag turns it into an array for easier handling)
-        local ts="${fields[0]:-}"
-        local uuid="${fields[1]:-}"
-        local base="${fields[2]:-}"
-        local orig="${fields[3]:-}"
-        local rec="${fields[4]:-}"
+        # expected format from the delete_file function:
+        # deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
 
-        if [ -z "$orig" ]; then 
-            continue
-        fi
-        
-        if [-z "$base" ]; then
-            base="$(basename "$orig")"
-        fi
+        # If base_name is empty, derive from original path (rare)
+        [ -z "$base_name" ] && base_name="$(basename "$orig_path")"
 
         local matched=0
-        
+
         #actual searching logic using grep (copilot recomended using the flags -q for quiet and -- for end of options)
-        if [ -n "$base" ] && printf '%s\n' "$base" | grep $grep_opts -q -- "$search_expr"; then
+        if [ -n "$base_name" ] && printf '%s\n' "$base_name" | grep $grep_opts -q -- "$search_expr"; then
             matched=1
         fi
-        if [ $matched -eq 0 ] && [ -n "$orig" ] && printf '%s\n' "$orig" | grep $grep_opts -q -- "$search_expr"; then
+        if [ $matched -eq 0 ] && [ -n "$orig_path" ] && printf '%s\n' "$orig_path" | grep $grep_opts -q -- "$search_expr"; then
             matched=1
         fi
 
         if [ $matched -eq 1 ]; then
+            # convert timestamp ddmmyyyyHHMMSS -> "YYYY-MM-DD HH:MM:SS" (if matches expected format)
             local del_date
             if [[ $ts =~ ^[0-9]{14}$ ]]; then
                 del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
             else
                 del_date="$ts"
             fi
-            local uid_short="${uuid:0:8}"
-            matches+=( "$uid_short|$base|$orig|$rec|$del_date|$uuid" )
+            local uid_short="${uuid:0:8}" #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)
+            matches+=( "$uid_short|$base_name|$orig_path|$recycle_path|$del_date|$size|$ftype|$uuid" )
         fi
     done < "$metadata_file"
 
@@ -579,19 +594,17 @@ function search_recycled(){
         return 0
     fi
 
-    #print results in a table format
-
-    printf "%-10s %-25s %-50s %-20s\n" "ID" "Name" "Original Path" "Deleted"
-    printf "%-10s %-25s %-50s %-20s\n" "----------" "-------------------------" "--------------------------------------------------" "--------------------"
+    #print results in a table format (showing additional info)
+    printf "%-10s %-25s %-50s %-20s %-8s %-8s\n" "ID" "Name" "Original Path" "Deleted" "Size" "Type"
+    printf "%-10s %-25s %-50s %-20s %-8s %-8s\n" "----------" "-------------------------" "--------------------------------------------------" "--------------------" "--------" "------"
 
     for entry in "${matches[@]}"; do
-        IFS='|' read -r id name orig rec del uuid <<< "$entry"
-        printf "%-10s %-25.25s %-50.50s %-20s\n" "$id" "${name:-}" "${orig:-}" "${del:-}"
+        IFS='|' read -r id name orig rec del size ftype uuid <<< "$entry"
+        printf "%-10s %-25.25s %-50.50s %-20s %-8s %-8s\n" "$id" "${name:-}" "${orig:-}" "${del:-}" "${size:-}" "${ftype:-}"
     done
 
     printf "\nTotal matches: %d\n" "${#matches[@]}"
     return 0
-
 }
 
 function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the delete function when in single mode
@@ -630,8 +643,8 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     fi
 
     #confirming force since it is dangerous
-    if ["$force" != "true"]; then
-        if ["$mode" = "all" ]; then
+    if [ "$force" != "true" ]; then
+        if [ "$mode" = "all" ]; then
             read -rp "Permanently delete ALL items in the recycle bin? This cannot be undone. Type 'YES' to confirm: " confirm
             if [ "$confirm" != "YES" ]; then
                 echo "Operation cancelled."
@@ -646,44 +659,32 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
         fi
     fi
 
-    #reusing helper 
-     human_readable() {
-        local bytes=$1
-        if [ -z "$bytes" ] || [ "$bytes" -lt 1024 ]; then
-            printf "%sB" "${bytes:-0}"
-        elif [ "$bytes" -lt $((1024*1024)) ]; then
-            printf "%dKB" $((bytes / 1024))
-        elif [ "$bytes" -lt $((1024*1024*1024)) ]; then
-            printf "%dMB" $((bytes / 1024 / 1024))
-        else
-            printf "%dGB" $((bytes / 1024 / 1024 / 1024))
-        fi
-    }
-
     #getting the lines that its supposed to delete
     local lines_to_delete=()
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
         case "$line" in 
-            deletion_timestamp*|deletion_timestamp,* ) continue;;
+            deletion_timestamp* ) continue;;
         esac
-        IFS='|' read -r ts uuid base orig rec size ftype rest <<< "$line"
+        # expected format from the delete_file function:
+        # deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
         [ -z "$uuid" ] && continue
-        [ -z "$rec" ] && continue
+        [ -z "$recycle_path" ] && continue
 
         if [ "$mode" = "all" ]; then
             lines_to_delete+=( "$line" )
         else 
-            local base_name
-            base_name="$(basename "$orig")"
-            if [ "$idArg" = "$uuid" ] || [[ "$uuid" == "$idArg"* ]] || ["$idArg" = "$base_name"] || ["$idArg" = "$orig" ]; then
+            local base_name_actual
+            base_name_actual="$(basename "$orig_path")"
+            if [ "$idArg" = "$uuid" ] || [[ "$uuid" == "$idArg"* ]] || [ "$idArg" = "$base_name_actual" ] || [ "$idArg" = "$orig_path" ]; then
                 lines_to_delete+=( "$line" )
             fi
         fi
     done < "$METADATA_LOG"
 
-    if [${#lines_to_delete[@]} -eq 0 ]; then
-        if ["$mode" = "all" ]; then
+    if [ ${#lines_to_delete[@]} -eq 0 ]; then
+        if [ "$mode" = "all" ]; then
             echo "No items found in recycle bin to delete."
         else
             echo "No matching item found for ID '$idArg' to delete."
@@ -691,37 +692,38 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
         return 0
     fi
 
-    if [ "$mode" = "single"] && [ ${#lines_to_delete[@]} -gt 1 ] && [ "$force" != "true"]; then
+    local to_delete=()
+    if [ "$mode" = "single" ] && [ ${#lines_to_delete[@]} -gt 1 ] && [ "$force" != "true" ]; then
         echo "Multiple matches found:"
         for i in "${!lines_to_delete[@]}"; do #remember to use ! for the indexes
-            IFS= '|' read -r ts uuid base orig rec size ftype rest <<< "${lines_to_delete[i]}"
+            IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "${lines_to_delete[i]}"
             if [[ $ts =~ ^[0-9]{14}$ ]]; then
                 del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
             else
                 del_date="$ts"
             fi
             size_bytes=0
-            if [ -e "$rec" ]; then
-                if [ -d "$rec" ]; then
-                    if du -sb "$rec" >/dev/null 2>&1; then
-                        size_bytes=$(du -sb "$rec" | cut -f1)
+            if [ -e "$recycle_path" ]; then
+                if [ -d "$recycle_path" ]; then
+                    if du -sb "$recycle_path" >/dev/null 2>&1; then
+                        size_bytes=$(du -sb "$recycle_path" | cut -f1)
                     else
-                        kb=$(du -s "$rec" 2>/dev/null | cut -f1)
+                        kb=$(du -s "$recycle_path" 2>/dev/null | cut -f1)
                         size_bytes=$((kb * 1024))
                     fi
                 else
-                    size_bytes=$(stat -c '%s' "$rec" 2>/dev/null || echo 0)
+                    size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
                 fi
             fi
             hr="$(human_readable "$size_bytes")"
-            echo "[$i] ID=${uuid:0:8}  Name=$(basename "$orig")  Deleted=$del_date  Size=$hr  RecyclePath=$rec"
+            echo "[$i] ID=${uuid:0:8}  Name=$base_name  Deleted=$del_date  Size=$hr  RecyclePath=$recycle_path"
         done
 
         while true; do
                 read -rp "Select index to delete (or 'c' to cancel): " sel
                 [ "$sel" = "c" ] && echo "Cancelled." && return 0
-                if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 0 ] && [ "$sel" -lt "${#candidates[@]}" ]; then
-                    to_delete+=( "${candidates[sel]}" )
+                if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 0 ] && [ "$sel" -lt "${#lines_to_delete[@]}" ]; then
+                    to_delete+=( "${lines_to_delete[$sel]}" )
                     break
                 fi
                 echo "Invalid selection."
@@ -736,42 +738,34 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     local failed=()
     local removed_uuids=()
     for line in "${to_delete[@]}"; do
-        IFS='|' read -ra f <<< "$line" #-a flag does this  -a array	assign the words read to sequential indices of the array
-    		
-
-        ts="${f[0]:-}"
-        uuid="${f[1]:-}"
-        orig="${f[3]:-}"
-        rec="${f[4]:-}"
-        size_field="${f[5]:-}"
-
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
         #calculating size before deletion
         size_bytes=0
-        if [ -e "$rec" ]; then
-            if [ -d "$rec" ]; then
-                if du -sb "$rec" >/dev/null 2>&1; then
-                    size_bytes=$(du -sb "$rec" | cut -f1)
+        if [ -e "$recycle_path" ]; then
+            if [ -d "$recycle_path" ]; then
+                if du -sb "$recycle_path" >/dev/null 2>&1; then
+                    size_bytes=$(du -sb "$recycle_path" | cut -f1)
                 else
-                    kb=$(du -s "$rec" 2>/dev/null | cut -f1)
+                    kb=$(du -s "$recycle_path" 2>/dev/null | cut -f1)
                     size_bytes=$((kb * 1024))
                 fi
             else
-                size_bytes=$(stat -c '%s' "$rec" 2>/dev/null || echo 0)
+                size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
             fi
         else
-            size_bytes="${size_field:-0}"
+            size_bytes="${size:-0}"
         fi
 
-        # Attemptign to remove
-        if [ -n "$rec" ] && [ -e "$rec" ]; then
-            if rm -rf -- "$rec"; then
+        # Attempting to remove
+        if [ -n "$recycle_path" ] && [ -e "$recycle_path" ]; then
+            if rm -rf -- "$recycle_path"; then
                 deleted_count=$((deleted_count + 1))
                 deleted_bytes=$((deleted_bytes + size_bytes))
                 removed_uuids+=( "$uuid" )
-                echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED $uuid -> $rec size=${size_bytes}" >> "$LOG" 2>/dev/null
+                echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED $uuid -> $recycle_path size=${size_bytes}" >> "$LOG" 2>/dev/null
             else
-                failed+=( "$uuid|$rec|failed_rm" )
-                echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_DELETE $uuid -> $rec" >> "$LOG" 2>/dev/null
+                failed+=( "$uuid|$recycle_path|failed_rm" )
+                echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_DELETE $uuid -> $recycle_path" >> "$LOG" 2>/dev/null
             fi
         else
             #troubleshooting case: (bit of overkill but whatever)
@@ -779,136 +773,124 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
             removed_uuids+=( "$uuid" )
             deleted_count=$((deleted_count + 1))
             deleted_bytes=$((deleted_bytes + size_bytes))
-            echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED_META_ONLY $uuid -> $rec (file missing) size=${size_bytes}" >> "$LOG" 2>/dev/null
+            echo "$(date +"%Y-%m-%d %H:%M:%S") DELETED_META_ONLY $uuid -> $recycle_path (file missing) size=${size_bytes}" >> "$LOG" 2>/dev/null
         fi
     done
-        #(done by copilot: metadata log update) REVIEW
-         # Update metadata.log: remove lines matching removed_uuids
-        if [ ${#removed_uuids[@]} -gt 0 ]; then
-            tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/empty.XXXXXXXX")" || tmpf="/tmp/empty.$$"
-            # build awk filter: print lines that do NOT have uuid in the removed set
-            awk_script='BEGIN{FS=OFS="|"} { if ($0 ~ /^deletion_timestamp/) { print; next } keep=1; for (i in ids) if ($2==ids[i]) { keep=0; break } if (keep) print }'
-            # write ids as awk array initialization
-            awk_init=""
-            for i in "${!removed_uuids[@]}"; do
-                u="${removed_uuids[$i]}"
-                # escape single quotes by closing and reopening single quotes in shell string
-                awk_init+="ids[$((i+1))] = \"$u\"; "
-            done
-            # run awk with init
-            awk "$awk_init $awk_script" "$METADATA_LOG" > "$tmpf" 2>/dev/null && mv "$tmpf" "$METADATA_LOG" || {
-                echo "Warning: failed to update metadata log; metadata may still reference deleted items."
-                [ -f "$tmpf" ] && rm -f "$tmpf"
-            }
-        fi
-        #summary 
-        echo 
-        echo "Deletion summary:"
-        echo "  Requested mode: $mode"
-        echo "  Items processed: ${#to_delete[@]}"
-        echo "  Successfully deleted: $deleted_count"
-        echo "  Total space freed: $(human_readable "$deleted_bytes") ($deleted_bytes bytes)"
-        if [ ${#failed[@]} -gt 0 ]; then
-            echo "  Failures: ${#failed[@]}"
-            #copilot suggested this way of displaying failures(revise)
-            for e in "${failed[@]}"; do
-                IFS='|' read -r uu rec why <<< "$e"
-                echo "    $uu -> $rec  ($why)"
-            done
-        fi
 
-        return 0
-    
+    #(done by copilot: metadata log update) REVIEW
+    # Update metadata.log: remove lines matching removed_uuids
+    if [ ${#removed_uuids[@]} -gt 0 ]; then
+        tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/empty.XXXXXXXX")" || tmpf="/tmp/empty.$$"
+        # build awk filter: print lines that do NOT have uuid in the removed set
+        awk_script='BEGIN{FS=OFS="|"} { if ($0 ~ /^deletion_timestamp/) { print; next } keep=1; for (i in ids) if ($2==ids[i]) { keep=0; break } if (keep) print }'
+        # write ids as awk array initialization
+        awk_init=""
+        for i in "${!removed_uuids[@]}"; do
+            u="${removed_uuids[$i]}"
+            awk_init+="ids[$((i+1))] = \"$u\"; "
+        done
+        # run awk with init
+        awk "$awk_init $awk_script" "$METADATA_LOG" > "$tmpf" 2>/dev/null && mv "$tmpf" "$METADATA_LOG" || {
+            echo "Warning: failed to update metadata log; metadata may still reference deleted items."
+            [ -f "$tmpf" ] && rm -f "$tmpf"
+        }
+    fi
+    #summary 
+    echo 
+    echo "Deletion summary:"
+    echo "  Requested mode: $mode"
+    echo "  Items processed: ${#to_delete[@]}"
+    echo "  Successfully deleted: $deleted_count"
+    echo "  Total space freed: $(human_readable "$deleted_bytes") ($deleted_bytes bytes)"
+    if [ ${#failed[@]} -gt 0 ]; then
+        echo "  Failures: ${#failed[@]}"
+        #copilot suggested this way of displaying failures(revise)
+        for e in "${failed[@]}"; do
+            IFS='|' read -r uu rec why <<< "$e"
+            echo "    $uu -> $rec  ($why)"
+        done
+    fi
+
+    return 0
 }
 function show_statistics(){
-        local recycle_bin="$RECYCLE_BIN"
-        local metadata_file="$METADATA_LOG"
-        local config_file="$CONFIG"
+    local recycle_bin="$RECYCLE_BIN"
+    local metadata_file="$METADATA_LOG"
+    local config_file="$CONFIG"
 
-        if [ -z "$recycle_bin" ] || [ -z "$metadata_file" ] || [ -z "$config_file" ]; then
-            echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
-            return 1
+    if [ -z "$recycle_bin" ] || [ -z "$metadata_file" ] || [ -z "$config_file" ]; then
+        echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
+        return 1
+    fi
+
+    if [ ! -f "$metadata_file" ]; then
+        echo "No metadata file found at: $metadata_file"
+        echo "Total items: 0"
+        echo "Total size: 0B"
+        return 1
+    fi
+
+    local max_mb=1024
+    if [ -f "$config_file" ]; then
+        val=$(awk -F= '/^MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
+        if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
+            max_mb=$val
+        fi
+    fi
+    local quota_bytes=$(( max_mb * 1024 * 1024 ))
+
+    #variables for the counters
+    local total=0
+    local total_bytes=0
+    local files=0
+    local dirs=0
+    local -a keys=()
+    local oldest_ts=0
+    local newest_ts=0
+
+    # Cohesive metadata reading
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        case "$line" in 
+            deletion_timestamp* ) continue;;
+        esac
+
+        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
+        [ -z "$uuid" ] && continue
+
+        total=$((total + 1))
+        size=${size:-0}
+
+        #making sure its numeric
+        if ! [[ "$size" =~ ^[0-9]+$ ]]; then
+            size=0
+        fi
+        total_bytes=$(( total_bytes + size ))
+        
+        if [ "$ftype" = "directory" ]; then
+            dirs=$((dirs + 1))
+        else    
+            files=$((files + 1))
         fi
 
-        if [ ! -f "$metadata_file" ]; then
-            echo "No metadata file found at: $metadata_file"
-            echo "Total items: 0"
-            echo "Total size: 0B"
-            return 1
+        # if ts matches expected DDMMYYYYHHMMSS, build sortable key YYYYMMDDHHMMSS and keep ISO form
+        if [[ $ts =~ ^[0-9]{14}$ ]]; then
+            key="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
+            iso="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
+            keys+=( "${key}|${iso}" )
         fi
 
-        local max_mb=1024
-        if [ -f "$config_file"]; then
-           val=$(awk -F= '/^MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
-            if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
-                max_mb=$val
-            fi
-        fi
-        local quota_bytes=$(( max_mb * 1024 * 1024 ))
+    done < "$metadata_file"
 
-        #variables for the counters
-        local total=0
-        local total_bytes=0
-        local files=0
-        local dirs=0
-        local -a keys=() #making the times (do a better comment for this)
-        local oldest_ts=0
-        local newest_ts=0
-
-        while IFS= read -r line || [ -n "$line" ]; do
-            [ -z "$line" ] && continue
-            case "$line" in 
-                deletion_timestamp*|deletion_timestap,* ) continue;;
-            esac
-
-            IFS= | read -r ts uuid base orig rec size ftype _rest <<< "$line"
-            [ -z "$uuid" ] && continue
-
-            total=$((total + 1))
-            size=${size:-0}
-
-            #making sure its numeric
-            if ! [[ "$size" =~ ^[0-9]+$ ]]; then
-                size=0
-            fi
-            total_bytes=$(( total_bytes + size ))
-            
-            if [ "$ftype" = "directory" ]; then
-                dirs=$((dirs + 1))
-            else    
-                files=$((files + 1))
-            fi
-
-            # if ts matches expected DDMMYYYYHHMMSS, build sortable key YYYYMMDDHHMMSS and keep ISO form
-            #i do this because its just better to start from the year to be able to tell which one is older
-
-            if [[ $ts =~ ^[0-9]{14}$ ]]; then
-                key="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
-                iso="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
-                keys+=( "${key}|${iso}")
-            fi
-
-        done < "$metadata_file"
-
-        if [ ${#keys[@]} -gt 0 ]; then  
-             IFS=$'\n' sorted=($(printf "%s\n" "${keys[@]}" | sort))
-            unset IFS
-            oldest_ts="${sorted[0]#*|}"
-            newest_ts="${sorted[-1]#*|}"
-        fi
-        human_readable() {
-        local bytes=$1
-        if [ "$bytes" -lt 1024 ]; then
-            echo "${bytes}B"
-        elif [ "$bytes" -lt $((1024*1024)) ]; then
-            printf "%dKB" $((bytes / 1024))
-        elif [ "$bytes" -lt $((1024*1024*1024)) ]; then
-            printf "%dMB" $((bytes / 1024 / 1024))
-        else
-            printf "%dGB" $((bytes / 1024 / 1024 / 1024))
-        fi
-        }
-        if [ "$total" -eq 0 ]; then
+    if [ ${#keys[@]} -gt 0 ]; then  
+        IFS=$'\n' sorted=($(printf "%s\n" "${keys[@]}" | sort))
+        unset IFS
+        oldest_ts="${sorted[0]#*|}"
+        newest_ts="${sorted[$(( ${#sorted[@]} - 1 ))]#*|}"
+    fi
+        
+    if [ "$total" -eq 0 ]; then
         echo "Total items: 0"
         echo "Total size: 0B (0%)"
         echo "Files: 0  Directories: 0"
@@ -916,7 +898,7 @@ function show_statistics(){
         echo "Newest item: N/A"
         echo "Average size: 0B"
         return 0
-        fi
+    fi
 
     local percent=0
     if [ "$quota_bytes" -gt 0 ]; then
@@ -932,8 +914,6 @@ function show_statistics(){
     printf "Average item size: %s (%d bytes)\n" "$(human_readable "$avg")" "$avg"
 
     return 0
-        
-   
 }
 
 
@@ -961,122 +941,108 @@ function autocleanup(){
         fi
     fi
 
-    local diference_key #key that holds the time of current date - retention_days
-    diference_key=$(date -d "-${retention_days} days") || {
+    # Calculate threshold date as YYYYMMDDHHMMSS for easy comparison
+    local threshold_date
+    threshold_date=$(date -d "-${retention_days} days" "+%Y%m%d%H%M%S") || {
         echo "ERROR: date required (date -d)"
         return 1
     }
-
 
     local processed=0
     local removed_count=0
     local bytes_removed=0
     local -a uuids_removed=()
-    local -a failed_removals=()        
+    local -a failed=()
 
     while IFS= read -r line || [ -n "$line" ]; do 
-       if  [ -z "$line " ] && continue
+        [ -z "$line" ] && continue
         case "$line" in
-            deletion_timestamp*|deletion_timestamp,*) continue
-            ;;
+            deletion_timestamp* ) continue ;;
         esac
-        IFS= | read -r ts uuid base orig rec size ftype _rest <<< "$line"
-            [ -z "$uuid" ] && continue
-            processed=$((processed + 1))
-        
-        if [[ "$size" =~ ^[0-9]+$ ]]; then size=0; fi
-        if [[ "$ts" =~ ^[0-9]+$ ]]; then
-            key="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
-        else    
+        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
+        [ -z "$uuid" ] && continue
+        processed=$((processed + 1))
+
+        # Parse timestamp to sortable YYYYMMDDHHMMSS
+        local item_date
+        if [[ $ts =~ ^[0-9]{14}$ ]]; then
+            item_date="${ts:4:4}${ts:2:2}${ts:0:2}${ts:8:2}${ts:10:2}${ts:12:2}"
+        else
             continue
         fi
 
-        #calculating the size if there is need for removal
-        if [[ "$key" < "$diference_key" ]]; then
-            local size_bytes="$size"
-            if [ -n "$rec" ] && [ -e "$rec" ]; then
-                if [ -d "$rec" ]; then
-                    if du -sb "$rec" >/dev/null 2>&1; then
-                        size_bytes=$(du -sb "$rec" | cut -f1)
+        # Only remove if older than threshold
+        if [[ "$item_date" < "$threshold_date" ]]; then
+            # Calculate size before removal
+            local size_bytes="${size:-0}"
+            if [ -n "$recycle_path" ] && [ -e "$recycle_path" ]; then
+                if [ -d "$recycle_path" ]; then
+                    if du -sb "$recycle_path" >/dev/null 2>&1; then
+                        size_bytes=$(du -sb "$recycle_path" | cut -f1)
                     else
-                        local kb
-                        kb=$(du -s "$rec" 2>/dev/null | cut -f1)
+                        kb=$(du -s "$recycle_path" 2>/dev/null | cut -f1)
                         kb=${kb:-0}
                         size_bytes=$((kb * 1024))
                     fi
                 else
-                    size_bytes=$(stat -c '%s' "$rec" 2>/dev/null || echo 0)
+                    size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
+                fi
+            fi
+            # Attempt removal
+            if [ -n "$recycle_path" ] && [ -e "$recycle_path" ]; then
+                if rm -rf -- "$recycle_path"; then
+                    removed_count=$((removed_count + 1))
+                    bytes_removed=$((bytes_removed + size_bytes))
+                    uuids_removed+=( "$uuid" )
+                else
+                    failed+=( "$uuid|$recycle_path|remove_failed" )
                 fi
             else
-                size_bytes="${size_field:-0}"
-            fi
-             #removing the files
-            if [ -n "$rec" ] && [ -e "$rec" ]; then
-                rm -rf --"$rec"; then
+                uuids_removed+=( "$uuid" )
                 removed_count=$((removed_count + 1))
-                bytes_removed=$((bytes_removed + (size_bytes:-0) ))
-                removed_uuids+=$( "$uuid" ) 
-            else
-                failed+= ( "$uuid|$rec|remove_failed" )
+                bytes_removed=$((bytes_removed + size_bytes))
             fi
         fi
     done < "$metadata_file"
 
     #updating the metadata log file
-    if [ ${#removed_uuids[@]} -gt 0]
-        tmpf="$(mktemp "${recycle_bin:-/tmp}.cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
+    if [ ${#uuids_removed[@]} -gt 0 ]; then
+        tmpf="$(mktemp "${recycle_bin:-/tmp}/cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
         while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
-            case "$line" in deletion_stamp*|deletion_stamp,*) echo "$line" >> "$tmpf"; continue ;; esac
-            IFS='|' read -r tmpts tmpuuid rest <<< "$line" #setting the temporary ts and uuid
+            case "$line" in deletion_timestamp* ) echo "$line" >> "$tmpf"; continue ;; esac
+            IFS='|' read -r ts uuid rest <<< "$line"
             local skip=0
-            for u in "${removed_uuids[@]}"; do
-                if [ "$u"="$uuid" ]; then skip = 1; break; fi
+            for u in "${uuids_removed[@]}"; do
+                if [ "$u" = "$uuid" ]; then skip=1; break; fi
             done
-            if [ "$skip" -eq 0 ] then echo "$line" >> "$tmpf"
+            if [ "$skip" -eq 0 ]; then echo "$line" >> "$tmpf"; fi
         done < "$metadata_file"
-
-
-        #updating metadata file
         if ! mv "$tmpf" "$metadata_file" 2>/dev/null; then 
             echo "Failed to update metadata file"
-            [ -f "$tmpf" ] && [ -rm "$tmpf" ]
+            [ -f "$tmpf" ] && rm "$tmpf"
         fi
     fi
 
-    #helper 
-    human_readable() {
-        local bytes=$1
-        if [ "$bytes" -lt 1024 ]; then
-            echo "${bytes}B"
-        elif [ "$bytes" -lt $((1024*1024)) ]; then
-            printf "%dKB" $((bytes / 1024))
-        elif [ "$bytes" -lt $((1024*1024*1024)) ]; then
-            printf "%dMB" $((bytes / 1024 / 1024))
-        else
-            printf "%dGB" $((bytes / 1024 / 1024 / 1024))
-        fi
-    }
-    
     #building the summary
-    echo "Auto-cleanup summary (older than ${retention} days):"
+    echo "Auto-cleanup summary (older than ${retention_days} days):"
     echo "  Items scanned: $processed"
     echo "  Items removed: $removed_count"
-    echo "  Space freed: $(human_readable "$removed_bytes") ($removed_bytes bytes)"
-    if [ ${#failed[@]} -gt 0 ]; then #reusing the copilot logic
+    echo "  Space freed: $(human_readable "$bytes_removed") ($bytes_removed bytes)"
+    if [ ${#failed[@]} -gt 0 ]; then
         echo "  Failures: ${#failed[@]}"
         for e in "${failed[@]}"; do
             IFS='|' read -r uu rec why <<< "$e"
             echo "    $uu -> $rec  ($why)"
         done
     fi
-       
 }
 
 function check_quota(){
     local config_file="$CONFIG"
-    local recycle_dir="$RECYCLE_BIN" 
-    local metadata_file="$METADATA_LOG"  
+    local recycle_dir="$RECYCLE_BIN"
+    local metadata_file="$METADATA_LOG"
 
     if [ -z "$config_file" ] || [ -z "$recycle_dir" ] || [ -z "$metadata_file" ]; then 
         echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
@@ -1084,54 +1050,42 @@ function check_quota(){
     fi
     
     local max_mb=1024 #defaults to 1024
-    if [ -f "$config_file"]; then 
-        val=$(awk -F '/MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
-        if [ -n "$val"] && [[ "$val" =~^[0-9]+$ ]]; then
+    if [ -f "$config_file" ]; then 
+        val=$(awk -F= '/MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
+        if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
             max_mb=$val
         fi
     fi
 
-    local max_bytes=$((max_mb * 1024 * 1024)) #converting to bytes
+    local max_bytes=$((max_mb * 1024 * 1024))
 
     if [ ! -f "$metadata_file" ]; then
         echo "No metadata file found at: $metadata_file"
         return 1
     fi
 
-    local total_bytes
-    
-    while IFS= read -r line || [ -n "$line" ] do
+    local total_size=0
+    while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
-            deletion_timestamp*|deletion_timestap,*) continue
-            ;;
+            deletion_timestamp* ) continue ;;
         esac
-        IFS= '|' read -r ts uuid base orig rec size rest <<< "$line"
+        # expected format: deletion_timestamp|uuid|base_name|original_path|recycle_path|size|ftype|permissions|owner|group|atime|mtime|ctime
+        IFS='|' read -r ts uuid base_name orig_path recycle_path size ftype perms owner group atime mtime ctime <<< "$line"
         [ -z "$uuid" ] && continue
         #validating size and defaulting to 0
-        if ! [[ "$size" =~ ^[0-9]+$ ]] 
+        if ! [[ "$size" =~ ^[0-9]+$ ]]; then
             size=0
-        else
-            total_size=((total_size + "$size"))
         fi
-    done <"$metada_file"
+        total_size=$((total_size + size))
+    done < "$metadata_file"
 
-    #checking if there is a need to call auto clean up
+    #checking if there is a need to call auto cleanup
     if [ "$total_size" -ge "$max_bytes" ]; then
-        echo "Reached maximum capacity... calling auto_cleanup"
-        auto_cleanup
+        echo "Reached maximum capacity... calling autocleanup"
+        autocleanup
     else
-        echo "Have not the quota feel free to keep using"
+        echo "Recycle bin quota not reached, feel free to keep using"
     fi
-    
-
-
-    
-
-
-
-
-
-
 }
 
 
@@ -1148,7 +1102,7 @@ function display_help(){ #using teacher suggestion(cat << EOF)
     Linux Recycle Bin - Usage Guide
 
     Usage: 
-        $recyclebin.sh <command> [options] [arguments]
+        ./recyclebin.sh <command> [options] [arguments]
 
     Commands:
         initialize
@@ -1238,9 +1192,68 @@ function display_help(){ #using teacher suggestion(cat << EOF)
         deletion_timestamp | uuid | basename | original_path | recycle_path | size | type | permissions | owner | group | atime | mtime | ctime
 
 
-    EOF
-
-        return 0
-    
-
+EOF
+    return 0
 }
+main() {
+    # Initialize recycle bin (only for commands that need it)
+    cmd="$1"
+    case "$cmd" in
+        initialize)
+            initialize_recyclebin
+            ;;
+        delete)
+            initialize_recyclebin || exit 1
+            shift
+            delete_file "$@"
+            ;;
+        list)
+            initialize_recyclebin || exit 1
+            shift
+            list_recycled "$@"
+            ;;
+        restore)
+            initialize_recyclebin || exit 1
+            shift
+            restore_file "$1"
+            ;;
+        search)
+            initialize_recyclebin || exit 1
+            shift
+            search_recycled "$@"
+            ;;
+        empty)
+            initialize_recyclebin || exit 1
+            shift
+            empty_recyclebin "$@"
+            ;;
+        statistics)
+            initialize_recyclebin || exit 1
+            show_statistics
+            ;;
+        cleanup)
+            initialize_recyclebin || exit 1
+            autocleanup
+            ;;
+        quota)
+            initialize_recyclebin || exit 1
+            check_quota
+            ;;
+        preview)
+            initialize_recyclebin || exit 1
+            shift
+            # preview_file "$1" # If you add a preview_file function
+            echo "Preview not implemented yet."
+            ;;
+        help|--help|-h)
+            display_help
+            ;;
+        *)
+            echo "Invalid option: '$cmd'. Use 'help' for usage information."
+            exit 1
+            ;;
+    esac
+}
+
+# Execute main function with all arguments
+main "$@"
