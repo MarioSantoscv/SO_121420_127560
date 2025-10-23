@@ -3,7 +3,7 @@
 
 #TODO: add header, add comments to functions, finish doing the functions, write a test script and a readme file 
 #in the readme explain what all of the metadad bits are 
-initialize_recyclebin() {
+function initialize_recyclebin() {
     RECYCLE_BIN="$HOME/.recycle_bin"
     FILES_DIR="$RECYCLE_BIN/files"
     METADATA_LOG="$RECYCLE_BIN/metadata.log"
