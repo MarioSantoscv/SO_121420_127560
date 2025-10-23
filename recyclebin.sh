@@ -1,6 +1,7 @@
 #!/bin/bash
 
-
+#ls ~/.recycle_bin/files
+#cat ~/.recycle_bin/metadata.log
 #TODO: add header, add comments to functions, finish doing the functions, write a test script and a readme file 
 #in the readme explain what all of the metadad bits are 
 
@@ -150,8 +151,8 @@ function delete_file(){
 
         if mv -- "$path" "$dest_path"; then
             echo "Recycled: $abs_path -> $dest_path"
-             echo "$uid_short|$base_name|$abs_path|$ts|$size|$ftype|$perms|$owner" >> "$METADATA_LOG" || \
-            echo "Warning: failed to write metadata for $path"
+            echo "$uid_short|$base_name|$abs_path|$ts|$size|$ftype|$perms|$owner" >> "$METADATA_LOG" || \
+                echo "Warning: failed to write metadata for $path"
             echo "$(date +"%Y-%m-%d %H:%M:%S") MOVED $abs_path -> $dest_path size=${size} type=${ftype} uuid=${uuid_str}" >> "$LOG" 2>/dev/null
         else
             echo "Error: Failed to move $path to recycle bin."
@@ -206,7 +207,7 @@ function list_recycled(){
         # id|name|orig_path|del_date|size|ftype|perms|owner
         IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
-        recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+        recycle_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
 
         # only include items that currently exist in the recycle bin
         [ -e "$recycle_path" ] || continue
@@ -227,18 +228,19 @@ function list_recycled(){
         size_hr="$(human_readable "$size_bytes")"
 
         # convert timestamp ddmmyyyyHHMMSS -> "YYYY-MM-DD HH:MM:SS" (if matches expected format)
-        if [[ $ts =~ ^[0-9]{14}$ ]]; then
-            del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}"
+        if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+            del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
         else
-            del_date="$ts"
+            del_date_fmt="$del_date"
         fi
 
-        id_short="${uuid:0:8}" #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)(why i changed the deletefunction too)
+        id_short="${id:0:8}"   # #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)(why i changed the deletefunction too)
+        size_hr="$(human_readable "$size_bytes")"  
         name="$(basename "$orig_path")"
-        size_hr="$(human_readable "$size_bytes")"
+        
 
         # store an entry with this format: $id|$name|$del_date|$size|$size_hr|$ftype|$perms|$owner|$orig_path
-        entries+=( "$uid_short|$name|$del_date|$size_bytes|$size_hr|$ftype|$perms|$owner|$orig_path|$id|$recycle_path" )
+        entries+=( "$id_short|$name|$del_date_fmt|$size_bytes|$size_hr|$ftype|$perms|$owner|$orig_path|$id|$recycle_path" )
         total_count=$(( total_count + 1 ))
         total_bytes=$(( total_bytes + size_bytes ))
 
@@ -281,7 +283,7 @@ function list_recycled(){
             printf "Type: %s\n" "$ftype"
             printf "Permissions: %s\n" "$perms"
             printf "Owner: %s\n" "$owner"
-            printf "----\n"
+            printf -- "----\n" #fixed mistake needed to add -- 
         done
     fi
 
@@ -293,12 +295,7 @@ function list_recycled(){
 
 }
 function restore_file() {
-    # Restore a recycled item by ID (uuid or short prefix) or filename.
-    # Uses METADATA_LOG and RECYCLE_BIN variables from the surrounding script.
-    #
-    # Expected metadata line format:
-    # ts|uuid|original_path|recycle_path|perms|owner|group|atime|mtime|ctime
-
+   
     local lookup="$1"
     local matches=()
     local idx=0
@@ -316,16 +313,18 @@ function restore_file() {
     # collect matches
     while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
-        IFS='|' read -r ts uuid orig_path rec_path perms owner group atime mtime ctime <<< "$line"
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+
+        recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
 
         # see if fields are not empty
-        [ -z "$uuid" ] && continue
-        [ -z "$rec_path" ] && continue
+        [ -z "$id" ] && continue
+        [ -z "$recycle_path" ] && continue
 
         local base_name
         base_name="$(basename "$orig_path")"
 
-        if [ "$lookup" = "$uuid" ] || [[ "$uuid" == "$lookup"* ]] || [ "$lookup" = "$base_name" ] || [ "$lookup" = "$orig_path" ]; then
+        if [ "$lookup" = "$id" ] || [[ "$id" == "$lookup"* ]] || [ "$lookup" = "$base_name" ] || [ "$lookup" = "$orig_path" ]; then
             matches+=("$line")
         fi
     done < "$METADATA_LOG"
@@ -340,20 +339,21 @@ function restore_file() {
     if [ ${#matches[@]} -gt 1 ]; then
         echo "Multiple matches found:"
         for i in "${!matches[@]}"; do
-            IFS='|' read -r ts uuid orig_path rec_path perms owner group atime mtime ctime <<< "${matches[i]}"
+            IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "${matches[i]}"
             # readable timestamp if possible (ddmmyyyyHHMMSS -> YYYY-MM-DD HH:MM:SS)
-            if [[ $ts =~ ^[0-9]{14}$ ]]; then
-                del_date="${ts:4:4}-${ts:2:2}-${ts:0:2} ${ts:8:2}:${ts:10:2}:${ts:12:2}" #same as in list_recycled
+            if [[ $del_date =~ ^[0-9]{14}$ ]]; then
+                del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             else
-                del_date="$ts"
+                del_date_fmt="$del_date"
             fi
             size_bytes=0
-            if [ -e "$rec_path" ]; then
-                if [ -d "$rec_path" ]; then
-                    size_kb=$(du -sk "$rec_path" 2>/dev/null | cut -f1) #reports size in kb and cuts only the numeric part
+            recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+            if [ -e "$recycle_path" ]; then
+                if [ -d "$recycle_path" ]; then
+                    size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1) #reports size in kb and cuts only the numeric part
                     size_bytes=$(( ${size_kb:-0} * 1024 ))  #1 byte = 1024kb
                 else
-                    size_bytes=$(stat -c '%s' "$rec_path" 2>/dev/null || echo 0) #if a file just get the size in bytes
+                    size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0) #if a file just get the size in bytes
                 fi
             fi
             #using my function human_readable if it exists to convert bytes to human readable format (hr format)
@@ -362,7 +362,7 @@ function restore_file() {
             else
                 size_hr="${size_bytes}B"
             fi
-            echo "[$i] ID=${uuid:0:8}  Name=$(basename "$orig_path")  Deleted=$del_date  Size=$size_hr  RecyclePath=$rec_path"
+            echo "[$i] ID=${id:0:8}  Name=$(basename "$orig_path")  Deleted=$del_date_fmt  Size=$size_hr  RecyclePath=$recycle_path"
         done
 
         # Selection loop of the item to restore (validates input to numeric and less than number of matches)
@@ -379,21 +379,21 @@ function restore_file() {
         chosen_line="${matches[0]}"
     fi
 
-    
-    IFS='|' read -r ts uuid orig_path rec_path perms owner group atime mtime ctime <<< "$chosen_line"
+    # Re-parse chosen line and reconstruct recycle_path for restoration
+    IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$chosen_line"
+    recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
 
-    
-    if [ ! -e "$rec_path" ]; then
-        echo "Recycled item not found at: $rec_path"
+    if [ ! -e "$recycle_path" ]; then
+        echo "Recycled item not found at: $recycle_path"
         return 1
     fi
 
     # using the same size calculation method to see if there is enough space to restore
-    if [ -d "$rec_path" ]; then
-        size_kb=$(du -sk "$rec_path" 2>/dev/null | cut -f1)
+    if [ -d "$recycle_path" ]; then
+        size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1)
         size_bytes=$(( ${size_kb:-0} * 1024 ))
     else
-        size_bytes=$(stat -c '%s' "$rec_path" 2>/dev/null || echo 0)
+        size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
     fi
 
     # ensure parent dir exists (create if necessary)
@@ -462,32 +462,34 @@ function restore_file() {
     fi
 
     # perform the move
-    if mv -- "$rec_path" "$dest"; then
+    if mv -- "$recycle_path" "$dest"; then
         echo "Restored: $dest"
         # restore perms
         if [ -n "$perms" ]; then
             chmod "$perms" "$dest" 2>/dev/null || echo "Warning: chmod failed for $dest"
         fi
 
-        # remove the metadata line (matching the exact UUID) (done by copilot)
+        # remove the metadata line (matching the exact ID) (done by copilot, now matching new format)
         tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/restore.XXXXXXXX")" || tmpf="/tmp/restore.$$"
-        awk -F'|' -v id="$uuid" '$2 != id { print }' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
+        awk -F'|' -v id="$id" '$1 != id { print }' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
             echo "Warning: failed to update metadata log; metadata may still reference the restored item."
             [ -f "$tmpf" ] && rm -f "$tmpf"
         }
 
         # log operation
         LOG="${RECYCLE_BIN:-$HOME/.recycle_bin}/recyclebin.log"
-        echo "$(date +"%Y-%m-%d %H:%M:%S") RESTORED $uuid -> $dest size=${size_bytes}" >> "$LOG" 2>/dev/null
+        echo "$(date +"%Y-%m-%d %H:%M:%S") RESTORED $id -> $dest size=${size_bytes}" >> "$LOG" 2>/dev/null
 
         echo "Restore complete."
         return 0
     else
-        echo "Failed to move $rec_path -> $dest (permission or filesystem error)."
-        echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_RESTORE $uuid -> $dest" >> "${RECYCLE_BIN:-$HOME/.recycle_bin}/recyclebin.log" 2>/dev/null
+        echo "Failed to move $recycle_path -> $dest (permission or filesystem error)."
+        echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_RESTORE $id -> $dest" >> "${RECYCLE_BIN:-$HOME/.recycle_bin}/recyclebin.log" 2>/dev/null
         return 1
     fi
 }
+
+
 function search_recycled(){
     local case_insensitive=0
     local pattern
