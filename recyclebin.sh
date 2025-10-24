@@ -2,10 +2,24 @@
 
 #ls ~/.recycle_bin/files
 #cat ~/.recycle_bin/metadata.log
-#TODO: add header, add comments to functions, finish doing the functions, write a test script and a readme file 
+#TODO: add comments to functions, finish doing the functions, write a test script and a readme file 
 #in the readme explain what all of the metadad bits are 
 
 #helper function for human readable bytes
+
+#################################################
+# Script Header Comment
+# Author: Mario Santos (127560), Kelvin Loforte (121420)
+# Date: 2025-10-31
+# Description: In this project we built a complete Linux Recycle Bin system using bash shell scripting. 
+# This was built for the  discipline Sistemas Operativos with the goal to allow users to safely
+# delete files with the ability to restore them before permanent deletion.
+# Version: 1.0
+#################################################
+
+
+
+
 function human_readable() {
         local bytes=$1
         if [ "$bytes" -lt 1024 ]; then
@@ -29,6 +43,18 @@ function generate_unique_id() {
 
 
 function initialize_recyclebin() {
+    # initialize_recyclebin
+    # Initializes all necessary files and directories for the recycle bin.
+    #
+    # Args:
+    #   (none)
+    #
+    # Returns:
+    #   0 on success, 1 on error
+    #
+    # Example:
+    #   initialize
+
     RECYCLE_BIN="$HOME/.recycle_bin"
     FILES_DIR="$RECYCLE_BIN/files"
     METADATA_LOG="$RECYCLE_BIN/metadata.log"
@@ -43,7 +69,7 @@ function initialize_recyclebin() {
 
     # initialize metadata.db with CSV header if missing or empty (matches the metadata log format of delete_file function)
 
-    # header: deletion_timestamp,uuid,original_path,recycle_path,permissions,owner,group,atime,mtime,ctime
+    # header: ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
     if [ ! -f "$METADATA_LOG" ] || [ ! -s "$METADATA_LOG" ]; then
         if ! printf "ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER\n" > "$METADATA_LOG"; then
             echo "ERROR: Unable to create $METADATA_LOG"
@@ -70,6 +96,17 @@ function initialize_recyclebin() {
 
 
 function delete_file(){
+    # delete_file
+    # Deletes the files adding them to the recycle bin and storing their metadata.
+    #
+    # Args:
+    #   $@: Names of the files or directories you want to delete (could be multiple).
+    #
+    # Returns:
+    #   1 if usage is incorrect or an error occurs, 0 otherwise.
+    # Example:
+    #   delete myfile.txt
+    #   delete file1.txt file2.txt directory/
     
     
     #error handling: making sure user passes at least one file/dir as an argument
@@ -163,6 +200,19 @@ function delete_file(){
 
 }
 function list_recycled(){
+    # list_recycled
+    # Lists all files and directories in the recycle bin. Can show a detailed list (with full metadata) or a compact list (ID, name, deletion date, size).
+    #
+    # Args:
+    #   --sort <date|name|size>   # Sorts output by date deleted (default), name, or size (extra feature)
+    #   --detailed                # Shows detailed metadata (otherwise, compact view)
+    #
+    # Returns:
+    #   0 on success, 1 on error/invalid usage
+    # Example:
+    #   list_recycled --sort size --detailed
+    
+
 
     #I wanted to add a sorting flag to the function and made it sortable by date of deletion, name or size
 
@@ -295,6 +345,19 @@ function list_recycled(){
 
 }
 function restore_file() {
+    # restore_file
+    # Restores a file or directory from the recycle bin to its original location, preserving metadata.
+    #
+    # Args:
+    #   <UUID-or-short-id-or-filename>   # Specify the recycled item's full UUID, short ID, or original filename to restore.
+    #
+    # Returns:
+    #   0 on success, 1 on error or invalid usage.
+    # 
+    #Example:
+    #   restore_file 12345678
+    #   restore_file myfile.txt
+    
    
     local lookup="$1"
     local matches=()
@@ -491,6 +554,20 @@ function restore_file() {
 
 
 function search_recycled(){
+    # search_recycled
+    # Searches for files or directories in the recycle bin by name or original path, supporting wildcards and case-insensitive matching.
+    #
+    # Args:
+    #   [-i|--ignore-case]    # Optional: Ignore case in search pattern
+    #   <pattern>             # Search pattern (wildcards * supported)
+    #
+    # Returns:
+    #   0 on success, 1 on error/invalid usage
+    #
+    # Example:
+    #   search_recycled "report"
+    #   search_recycled -i "*.pdf"
+    
     local case_insensitive=0
     local pattern
 
@@ -605,6 +682,30 @@ function search_recycled(){
 }
 
 function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the delete function when in single mode
+    # empty_recyclebin
+    # Permanently deletes items from the recycle bin, either all items or a specific item by ID or filename.
+    #
+    # Args:
+    #   [--force]                    # Optional: Skip confirmation prompts
+    #   [<UUID-or-short-id-or-filename>]  # Optional: Delete only the item matching this identifier; if omitted, deletes all items
+    #
+    # Returns:
+    #   0 on success, 1 on error/invalid usage
+    #
+    # Example:
+    #   empty_recyclebin
+    #       # Asks for confirmation before deleting all items
+    #   empty_recyclebin --force
+    #       # Deletes ALL items without confirmation
+    #   empty_recyclebin 12345678
+    #       # Asks for confirmation before deleting item with that ID
+    #   empty_recyclebin --force myfile.txt
+    #       # Deletes item with that name/ID without confirmation
+    #
+    # Notes:
+    #   - Removes matching files/directories and updates the metadata log
+    #   - Prints summary of deletions and space freed
+    #   - Prompts for confirmation unless --force is specified
     local idArg=""
     local force=false
 
@@ -809,7 +910,18 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
 }
 
 function show_statistics(){
-    local recycle_bin="$RECYCLE_BIN"
+    # show_statistics
+    # Displays statistics about the recycle bin: item counts, total and average size, quota, oldest/newest item.
+    #
+    # Args:
+    #   (none)
+    #
+    # Returns:
+    #   0 on success, 1 if not initialized or on error
+    #
+    # Example:
+    #   statistics
+    
     local metadata_file="$METADATA_LOG"
     local config_file="$CONFIG"
 
@@ -913,6 +1025,19 @@ function show_statistics(){
 
 
 function autocleanup(){
+    # auto_cleanup
+    # Automatically removes items from the recycle bin that are older than the configured retention period(30 days as per the config file).
+    #
+    # Args:
+    #   (none)
+    #
+    # Returns:
+    #   0 on success, 1 if not initialized or on error
+    #
+    # Example:
+    #   cleanup
+
+
     local recycle_bin="$RECYCLE_BIN"
     local metadata_file="$METADATA_LOG"
     local config_file="$CONFIG"
@@ -1037,6 +1162,19 @@ function autocleanup(){
 }
 
 function check_quota(){ #when reached ask if u want to call the autocleanup to delete the oldest file
+    # check_quota
+    # Checks if the recycle bin has reached its configured quota, and calls autocleanup if necessary.
+    #
+    # Args:
+    #   (none)
+    #
+    # Returns:
+    #   0 on success, 1 if not initialized or on error
+    #
+    # Example:
+    #   quota
+    
+
     local config_file="$CONFIG"
     local recycle_dir="$RECYCLE_BIN"
     local metadata_file="$METADATA_LOG"
@@ -1186,7 +1324,7 @@ function display_help(){ #using teacher suggestion(cat << EOF)
         RETENTION_DAYS Number of days to keep items before purging (default: 30)
 
     Metadata format (pipe '|' delimited):
-        deletion_timestamp | uuid | basename | original_path | recycle_path | size | type | permissions | owner | group | atime | mtime | ctime
+        ID|ORIGINAL_NAME|ORIGINAL_PATH|DELETION_DATE|FILE_SIZE|FILE_TYPE|PERMISSIONS|OWNER
 
 
 EOF
