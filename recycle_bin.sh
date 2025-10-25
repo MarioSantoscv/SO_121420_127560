@@ -303,7 +303,7 @@ function list_recycled(){
     done < "$METADATA_LOG"
 
     if [ ${#entries[@]} -eq 0 ]; then
-        echo "No recycled items found."
+        echo "No files in recycle bin."
         return 0
     fi
 
