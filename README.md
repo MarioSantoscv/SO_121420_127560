@@ -183,7 +183,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ```bash
 ./recyclebin.sh quota
 ```
-![Screenshot](/home/mario/Desktop/SO_121420_127560/screenshots/quotatest.png)
+![Screenshot](SO_121420_127560/screenshots/quotatest.png)
 ---
 
 ### 9. Previewing Files Before Restore
