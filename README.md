@@ -198,6 +198,8 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 
 ```bash
 ./recyclebin.sh help
+./recyclebin.sh --help
+./recyclebin.sh -h
 ```
 
 ---
