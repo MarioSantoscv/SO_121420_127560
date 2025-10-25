@@ -206,7 +206,8 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 
 
 ## Known Issues
-
+- Cannot handle link resotoration.
+- Cannot delelte files with a name that is over 255 letters.
 
 
 ## References
@@ -214,3 +215,4 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 - [Bash scripting manual](https://www.gnu.org/software/bash/manual/)
 - [Sistemas Operativos course materials]
 - [Advanced Bash-Scripting Guide](https://tldp.org/LDP/abs/html/)
+- [Stack Exchange](https://unix.stackexchange.com/questions/101332/generate-file-of-a-certain-size)
