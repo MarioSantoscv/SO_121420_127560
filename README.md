@@ -114,8 +114,8 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ```bash
 ./recyclebin.sh delete ~/Documents/example.txt
 ```
-![alt text](singledelete_test.png)
-![alt text](<multiple_deletions(dirs and files).png>)
+![Screenshot](/screenshots/singledelete_test.png)
+![Screenshot](/screenshots/multiple_deletions(dirs%20and%20files).png)
 
 ---
 
@@ -127,8 +127,8 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ./recyclebin.sh list --sort name
 ./recyclebin.sh list --sort size --detailed
 ```
-![alt text](listtest.png)
-![alt text](list_test_of_sortflag.png)
+![Screenshot](/screenshots/listtest.png)
+![Screenshot](/screenshots/list_test_of_sortflag.png)
 ---
 
 ### 3. Restoring Files or Directories
@@ -137,7 +137,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ./recyclebin.sh restore example.txt
 ./recyclebin.sh restore 12345678
 ```
-![alt text](restoretest.png)
+![Screenshot](/screenshots/restoretest.png)
 ---
 
 ### 4. Searching for Recycled Items
@@ -147,7 +147,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ./recyclebin.sh search report
 ./recyclebin.sh search -i "presentation" (case insensitive)
 ```
-![alt text](search_test.png)
+![Screenshot](/screenshots/search_test.png)
 ---
 
 ### 5. Emptying the Recycle Bin (All or Single Item)
@@ -158,8 +158,8 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ./recyclebin.sh empty example.txt
 ./recyclebin.sh empty 12345678
 ```
-![alt text](empty_test1.png)
-![alt text](empty_test2.png)
+![Screenshot](/screenshots/empty_test1.png)
+![Screenshot](/screenshots/empty_test2.png)
 ---
 
 ### 6. Showing Statistics
@@ -167,7 +167,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ```bash
 ./recyclebin.sh statistics
 ```
-![alt text](statistics_test.png)
+![Screenshot](/screenshots/statistics_test.png)
 ---
 
 ### 7. Auto-cleanup (Removing Old Files Automatically)
@@ -175,7 +175,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ```bash
 ./recyclebin.sh cleanup
 ```
-![alt text](autocleanup_test.png)
+![Screenshot](/screenshots/autocleanup_test.png)
 ---
 
 ### 8. Quota Management (Check Space and Trigger Cleanup)
