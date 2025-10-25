@@ -20,6 +20,7 @@
 
 
 
+
 function human_readable() {
         local bytes=$1
         if [ "$bytes" -lt 1024 ]; then
@@ -95,7 +96,12 @@ function initialize_recyclebin() {
 }
 
 
-function delete_file(){
+function delete_file(){ 
+    #fix 255 letter edge case
+
+
+
+
     # delete_file
     # Deletes the files adding them to the recycle bin and storing their metadata.
     #
@@ -344,6 +350,8 @@ function list_recycled(){
     printf "Total size: %s (%d bytes)\n" "$total_hr" "$total_bytes"
 
 }
+
+   #fix links handling
 function restore_file() {
     # restore_file
     # Restores a file or directory from the recycle bin to its original location, preserving metadata.
@@ -353,13 +361,16 @@ function restore_file() {
     #
     # Returns:
     #   0 on success, 1 on error or invalid usage.
-    # 
-    #Example:
+    #
+    # Example:
     #   restore_file 12345678
-    #   restore_file myfile.txt
-    
-   
-    local lookup="$1"
+    #   restore_file "my file with spaces.txt"
+
+    # Helper to trim whitespace
+    trim() { echo "$1" | awk '{$1=$1;print}'; }
+
+    # Accept full argument (with spaces) first fix 
+    local lookup="$(trim "$*")"
     local matches=()
     local idx=0
 
@@ -378,16 +389,20 @@ function restore_file() {
         [ -z "$line" ] && continue
         IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
-        recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+        # Trim all variables that will be compared
+        id="$(trim "$id")"
+        name="$(trim "$name")"
+        orig_path="$(trim "$orig_path")"
+        base_name="$(trim "$(basename "$orig_path")")"
+
+        recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
 
         # see if fields are not empty
         [ -z "$id" ] && continue
         [ -z "$recycle_path" ] && continue
 
-        local base_name
-        base_name="$(basename "$orig_path")"
-
-        if [ "$lookup" = "$id" ] || [[ "$id" == "$lookup"* ]] || [ "$lookup" = "$base_name" ] || [ "$lookup" = "$orig_path" ]; then
+        # Matching logic, with all variables quoted and trimmed(second fix)
+        if [ "$lookup" = "$id" ] || [[ "$id" == "$lookup"* ]] || [ "$lookup" = "$base_name" ] || [ "$lookup" = "$orig_path" ] || [ "$lookup" = "$name" ]; then
             matches+=("$line")
         fi
     done < "$METADATA_LOG"
@@ -403,6 +418,10 @@ function restore_file() {
         echo "Multiple matches found:"
         for i in "${!matches[@]}"; do
             IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "${matches[i]}"
+            id="$(trim "$id")"
+            name="$(trim "$name")"
+            orig_path="$(trim "$orig_path")"
+            base_name="$(trim "$(basename "$orig_path")")"
             # readable timestamp if possible (ddmmyyyyHHMMSS -> YYYY-MM-DD HH:MM:SS)
             if [[ $del_date =~ ^[0-9]{14}$ ]]; then
                 del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
@@ -410,25 +429,23 @@ function restore_file() {
                 del_date_fmt="$del_date"
             fi
             size_bytes=0
-            recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+            recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
             if [ -e "$recycle_path" ]; then
                 if [ -d "$recycle_path" ]; then
-                    size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1) #reports size in kb and cuts only the numeric part
-                    size_bytes=$(( ${size_kb:-0} * 1024 ))  #1 byte = 1024kb
+                    size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1)
+                    size_bytes=$(( ${size_kb:-0} * 1024 ))
                 else
-                    size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0) #if a file just get the size in bytes
+                    size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
                 fi
             fi
-            #using my function human_readable if it exists to convert bytes to human readable format (hr format)
             if declare -f human_readable >/dev/null 2>&1; then
                 size_hr=$(human_readable "$size_bytes")
             else
                 size_hr="${size_bytes}B"
             fi
-            echo "[$i] ID=${id:0:8}  Name=$(basename "$orig_path")  Deleted=$del_date_fmt  Size=$size_hr  RecyclePath=$recycle_path"
+            echo "[$i] ID=${id:0:8}  Name=$base_name  Deleted=$del_date_fmt  Size=$size_hr  RecyclePath=$recycle_path"
         done
 
-        # Selection loop of the item to restore (validates input to numeric and less than number of matches)
         while true; do
             read -rp "Select index to restore (or 'c' to cancel): " selected
             [ "$selected" = "c" ] && echo "Cancelled." && return 0
@@ -444,7 +461,11 @@ function restore_file() {
 
     # Re-parse chosen line and reconstruct recycle_path for restoration
     IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$chosen_line"
-    recycle_path="$(ls "$FILES_DIR"/${name}_${id}* 2>/dev/null | head -n 1)"
+    id="$(trim "$id")"
+    name="$(trim "$name")"
+    orig_path="$(trim "$orig_path")"
+    base_name="$(trim "$(basename "$orig_path")")"
+    recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
 
     if [ ! -e "$recycle_path" ]; then
         echo "Recycled item not found at: $recycle_path"
@@ -466,12 +487,17 @@ function restore_file() {
         read -rp "Create parent directories and continue? [y/N]: " yn
         case "$yn" in
             [Yy]* ) mkdir -p "$dest_parent" || { echo "Failed to create $dest_parent (permission?)"; return 1; } ;;
-            * ) echo "Cancelled."; return 0 ;; #if no just exit
+            * ) echo "Cancelled."; return 0 ;;
         esac
     fi
 
+    if [ ! -w "$dest_parent" ]; then #fixing the edge case error where i could restore to a 555 dir 
+        echo "Error: Parent directory '$dest_parent' is not writable. Restore aborted."
+        return 1
+    fi
+
     # check disk space on destination filesystem
-    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null | awk 'END{print $4+0}') #(copilot helped)
+    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null | awk 'END{print $4+0}')
     need_kb=$(( (size_bytes + 1023) / 1024 ))
     if [ -n "$avail_kb" ] && [ "$avail_kb" -lt "$need_kb" ]; then
         echo "Not enough disk space to restore (need ${need_kb}K, have ${avail_kb}K)."
@@ -491,8 +517,7 @@ function restore_file() {
                     read -rp "Are you sure you want to overwrite $dest ? [y/N]: " ok
                     case "$ok" in
                         [Yy]* )
-                            # try to remove existing
-                            if rm -rf -- "$dest"; then  #recursive remove for dirs, force for files
+                            if rm -rf -- "$dest"; then
                                 echo "Existing item removed."
                                 break
                             else
@@ -507,7 +532,6 @@ function restore_file() {
                     esac
                     ;;
                 2)
-                    # create modified name by appending timestamp
                     ts_now=$(date +%s)
                     dest="${orig_path}_restored_${ts_now}"
                     echo "Will restore to: $dest"
@@ -532,7 +556,7 @@ function restore_file() {
             chmod "$perms" "$dest" 2>/dev/null || echo "Warning: chmod failed for $dest"
         fi
 
-        # remove the metadata line (matching the exact ID) (done by copilot, now matching new format)
+        # remove the metadata line (matching the exact ID)
         tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/restore.XXXXXXXX")" || tmpf="/tmp/restore.$$"
         awk -F'|' -v id="$id" '$1 != id { print }' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
             echo "Warning: failed to update metadata log; metadata may still reference the restored item."
@@ -1264,7 +1288,7 @@ function display_help(){ #using teacher suggestion(cat << EOF)
             Example:
                 ./recycle_bin.sh restore 1696234567_abc123
                 ./recycle_bin.sh restore myfile.txt
-        search <pattern> [--case-insensitive]
+        search <pattern> [-i | --ignore-case]
             Searches for items in the bin through the user defined pattern that can be 
             a basename or original path. Supports '*' wildcards
             Example:
@@ -1350,7 +1374,7 @@ main() {
         restore)
             initialize_recyclebin || exit 1
             shift
-            restore_file "$1"
+            restore_file "$@"
             ;;
         search)
             initialize_recyclebin || exit 1

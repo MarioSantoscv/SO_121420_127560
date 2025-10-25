@@ -85,7 +85,7 @@ Before using most commands, initialize the recycle bin:
 - List all recycled items with sorting and detailed views (sorting is an optional feature added)
 - Search recycled items by name or path (supports wildcards)
 - Permanently empty the recycle bin (single or all items)
-- **Optional/Extra:**Show detailed statistics (counts, sizes, oldest/newest items)
+- **Optional/Extra:** Show detailed statistics (counts, sizes, oldest/newest items)
 - **Optional/Extra:** Auto-cleanup items older than a retention period *(configurable) use this command nano ~/.recycle_bin/config (make sureyou are in the same dir)*
 - **Optional/Extra:** Quota management: warns and triggers cleanup if full
 - Logging for operations
