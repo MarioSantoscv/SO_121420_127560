@@ -101,14 +101,13 @@ Variables:
 - `RETENTION_DAYS`: Number of days to keep items before auto-deletion (default: 30)
 
 Edit this file to change limits: (use this nano ~/.recycle_bin/config)
-```
+
 
 
 
 ## Examples
 
 
-```
 ### 1. Deleting Files or Directories
 
 ```bash
@@ -208,7 +207,7 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ## Known Issues
 - Cannot handle link resotoration.
 - Cannot delelte files with a name that is over 255 letters.
-
+- Restore fails when original directory is read-only — file not restored and error message displayed. 
 
 ## References
 
