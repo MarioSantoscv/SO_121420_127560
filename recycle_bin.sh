@@ -352,6 +352,8 @@ function list_recycled(){
 }
 
    #fix links handling
+   #fix to restoree to read oonly files
+   
 function restore_file() {
     # restore_file
     # Restores a file or directory from the recycle bin to its original location, preserving metadata.
