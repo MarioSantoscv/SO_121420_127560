@@ -20,7 +20,7 @@
 - File appears in list output
 **Actual Result:** [Fill in after testing]
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/singledelete_test.png)
 
 ### Test Case 2: Delete Multiple Files
 **Objective:** Verify that  Multiple files can be deleted successfully
@@ -37,7 +37,7 @@
 - File appears in list output
 **Actual Result:** Metada log update and list function shows the fils and they arent in the directory anymore
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/multiple_deletions(dirs%20and%20files).png)
 
 ### Test Case 3: List empty recycle bin
 **Objective:** Verify that it doesnt list an empty recycle bin
@@ -48,7 +48,7 @@
 -Shows message: No files in recycle bin
 **Actual Result:** Shows message: No files in recycle bin
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/listempty.png)
 
 ### Test Case 4: List recycle bin with items
 **Objective:** Verify that list function works
@@ -61,7 +61,7 @@
 -A list with the metadata of the file that was deleted (could be detailed or basic depending on flag used)
 **Actual Result:** A list with the metadata of the file
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/listtest.png)
 
 ### Test Case 5: Restore Single File
 **Objective:** Verify that a single file can be restored
@@ -74,7 +74,7 @@
 **Expected Results:** File is in the same directory it was deleted from
 **Actual Results:** File is in the same directory it was deleted from
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/restoretest.png)
 
 ### Test Case 6: Empty recycle bin
 **Objective:** Verify that recycle bin can be emptied
@@ -87,7 +87,8 @@
 **Expected Results** -Shows message: No files in recycle bin
 **Actual Results** -Shows message: No files in recycle bin
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/empty_test1.png)
+![Screenshot](/screenshots/basic_functionality_cases/empty_test2.png)
 
 ### Test Case 7: Search for existing file
 **Objective:** Verify that existing file can be found
@@ -100,7 +101,7 @@
 **Expected Results** -Shows metadata of the file
 **Actual Results** -Shows metadata of the file
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/search_test.png)
 
 ### Test Case 8: Search for non existing file
 **Objective:** Verify that non existing file cannot be found
@@ -110,7 +111,7 @@
 **Expected Results** -Shows message: No matches found for momosmd.txt
 **Actual Results** -Shows message: No matches found for momosmd.txt
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/searchnonexistent.png)
 
 ### Test Case 9: Display Help
 **Objective:** Verify that help can be displayed
@@ -120,7 +121,7 @@
 **Expected Results** -Shows help message
 **Actual Results** -Shows help message
 **Status:** ☒ Pass ☐ Fail
-**Screenshots:** [If applicable]
+**Screenshots:** ![Screenshot](/screenshots/basic_functionality_cases/helptest.png)
 
 
 ## Edge cases testing
@@ -137,8 +138,10 @@
 -  **Delete files from different directories** — ☒ Pass ☐ Fail  
 -  **Restore files to read-only directories** — ☐ Pass ☒ Fail
 
+    [View all screenshots here](/screenshots/edge_cases/)
 ## Performance Tests
 -  **Delete 100+ files** — ☒ Pass ☐ Fail  
 -  **List recycle bin with 100+ items** — ☒ Pass ☐ Fail  
 -  **Search in large metadata file** — ☒ Pass ☐ Fail  
 -  **Restore from bin with many items** — ☒ Pass ☐ Fail
+    [View all screenshots here](/screenshots/perfomance_test_cases/)
