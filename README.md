@@ -216,3 +216,6 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 - [Sistemas Operativos course materials]
 - [Advanced Bash-Scripting Guide](https://tldp.org/LDP/abs/html/)
 - [Stack Exchange](https://unix.stackexchange.com/questions/101332/generate-file-of-a-certain-size)
+- [Gnome Zenity manual](https://help.gnome.org/users/zenity/stable/)
+- [Medium Zenity guide](https://sonamthakur7172.medium.com/exploring-zenity-a-comprehensive-guide-to-dialog-boxes-ff61cb9bbcb0)
+- [Zenity terminal manual]

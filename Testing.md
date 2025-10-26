@@ -144,4 +144,22 @@
 -  **List recycle bin with 100+ items** — ☒ Pass ☐ Fail  
 -  **Search in large metadata file** — ☒ Pass ☐ Fail  
 -  **Restore from bin with many items** — ☒ Pass ☐ Fail
+
     [View all screenshots here](/screenshots/perfomance_test_cases/)
+
+## Test Summary
+| Category | Total Tests | Passed | Failed | Pass Rate |
+|----------|-------------|--------|--------|-----------|
+| Basic Functionality | 13 | 13 | 0 | 100% |
+| Edge Cases | 12 | 9 | 3 | 75% |
+| Error Handling | 8 | 8 | 0 | 100% |
+| Performance | 4 | 4 | 0 | 100% |
+| **TOTAL** | **37** | **34** | **3** | **91%** |
+
+
+
+## Known Bugs or Limitations
+- Restore fails when original directory is **read-only** — file not restored and error message displayed.  
+- **Symbolic links** are not handled correctly — links are deleted but not restored as links.  
+- **Very long filenames (255+ characters)** cause unexpected behavior or errors.    
+ 
