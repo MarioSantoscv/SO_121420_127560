@@ -918,10 +918,10 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     #summary 
     echo 
     echo "Deletion summary:"
-    echo "  Requested mode: $mode"
-    echo "  Items processed: ${#to_delete[@]}"
-    echo "  Successfully deleted: $deleted_count"
-    echo "  Total space freed: $(human_readable "$deleted_bytes") ($deleted_bytes bytes)"
+    echo "Requested mode: $mode"
+    echo "Items processed: ${#to_delete[@]}"
+    echo "Successfully deleted: $deleted_count"
+    echo "Total space freed: $(human_readable "$deleted_bytes") ($deleted_bytes bytes)"
     if [ ${#failed[@]} -gt 0 ]; then
         echo "  Failures: ${#failed[@]}"
         for e in "${failed[@]}"; do
@@ -948,6 +948,7 @@ function show_statistics(){
     
     local metadata_file="$METADATA_LOG"
     local config_file="$CONFIG"
+    local recycle_bin="$RECYCLE_BIN"
 
     if [ -z "$recycle_bin" ] || [ -z "$metadata_file" ] || [ -z "$config_file" ]; then
         echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2

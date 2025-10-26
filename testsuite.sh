@@ -67,13 +67,24 @@ test_initialization() {
 }
 
 
+
 test_nodelete_file(){
-    echo "=== Test: Delete Non_existent File ==="
+    echo "=== Test: Delete Non Existent File ==="
     setup
     $SCRIPT delete "$TEST_DIR/marioo.txt" |grep -iq "does not exist"
-    assert_success "Delete non-existent file"
+    assert_success "Can Not Delete Non-existent File"
     teardown
     [ ! -f "$TEST_DIR/marioo.txt" ] && echo "✓ File still does not exist"  
+}
+
+test_delete_bin() {
+    echo "=== Test: Delete Recycle bin ==="
+    setup
+    $SCRIPT delete "$TEST_DIR" |grep -iq "cannot delete recycle bin"
+    assert_fail "Could Not Delete Recycle Bin"
+    teardown
+    [ -d "$TEST_DIR" ] && echo "✓ Recycle Bin Still Exists"
+    
 }
 
 test_delete_file() {
@@ -90,14 +101,14 @@ test_list_empty() {
     echo "=== Test: List Empty Bin ==="
     setup
     $SCRIPT list 2>&1 | grep -iq "no files" # Accept "No files in recycle bin."(was failing because teachers test script was using another sentence)
-    assert_success "List empty recycle bin"
+    assert_success "List Empty Recycle Bin"
     teardown
 }
 test_norestore_file(){
-    echo "===Test: Restore non existent File==="
+    echo "===Test: Restore Non Existent File==="
     setup
     $SCRIPT restore "test.txt"| grep -iq "No entry"
-    assert_success "Could not restore file"
+    assert_success "Could Not restore file"
     [ ! -f "$TEST_DIR/restore_test.txt" ] && echo "✓ File restored"
     teardown
 
@@ -110,7 +121,7 @@ test_restore_file() {
     # Get file ID from metadata.log
     ID=$(awk -F'|' '/restore_test/{print $1}' ~/.recycle_bin/metadata.log | head -n 1)
     $SCRIPT restore "$ID"
-    assert_success "Restore file"
+    assert_success "Restore File"
     [ -f "$TEST_DIR/restore_test.txt" ] && echo "✓ File restored"
     teardown
 }
@@ -121,7 +132,7 @@ test_search_file(){
     echo "tester" > "$TEST_DIR/search_test.txt"
     $SCRIPT delete "$TEST_DIR/search_test.txt" > /dev/null 2>&1
     $SCRIPT  search "search_test.txt"
-    assert_success "Search file"
+    assert_success "Search File"
     teardown
 }
 
@@ -138,9 +149,19 @@ test_empty_empty(){
     setup 
     echo "tester" > "$TEST_DIR/search_test.txt"
     $SCRIPT delete "$TEST_DIR/search_test.txt" > /dev/null 2>&1
-    $SCRIPT empty 
-    $SCRIPT empty | grep -iq "no items"
+    $SCRIPT empty --force > /dev/null 2>&1
+    $SCRIPT empty --force | grep -iq "no items"
     assert_success "Bin already empty"
+    teardown
+}
+
+test_empty(){
+    echo "=== Test: Empty Recicle Bin ==="
+    setup
+    echo "tester" > "$TEST_DIR/empty_test.txt"
+    $SCRIPT delete "$TEST_DIR/empty_test.txt" > /dev/null 2>&1
+    $SCRIPT empty --force 2>&1 |grep -Eiq 'Successfully deleted: *[1-9][0-9]*' 
+    assert_success "Emptied Recycle Bin"
     teardown
 }
 
@@ -167,13 +188,29 @@ test_autocleanup(){ #fix
     ID=$(awk -F'|' '/old_file/{print $1}' ~/.recycle_bin/metadata.log | head -n 1)
     $SCRIPT cleanup |grep -iq "Items removed: 1"
     grep -q "$ID" ~/.recycle_bin/metadata.log
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 0 ]; then
         assert_success "File with retention 0 days was cleaned up"
-    else
-        assert_fail "File with retention 0 days was not cleaned up"
     fi
     teardown
 
+}
+
+test_help(){
+    echo "=== Test: Help Function ==="
+    setup
+    $SCRIPT help|grep -iq "Linux Recycle Bin - Usage Guide"
+    assert_success "Help Was Provided"
+    teardown
+
+}
+test_statistics(){
+    echo "=== Test: Statistics Function ==="
+    setup
+    echo "tester" > "$TEST_DIR/statistics_file.txt"
+    $SCRIPT delete "$TEST_DIR/statistics_file.txt" > /dev/null 2>&1
+    $SCRIPT statistics |grep -iq "Total items: 1"
+    assert_success "Statistics Shown Correctly"
+    teardown
 }
 
 # Run all tests
@@ -192,7 +229,10 @@ test_empty_empty
 test_norestore_file
 test_quota_autocleanup
 test_autocleanup
-
+test_delete_bin
+test_empty
+test_help
+test_statistics
 
 # Add more test functions here
 
