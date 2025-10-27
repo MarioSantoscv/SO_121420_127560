@@ -19,9 +19,37 @@
 
 
 
-
+#this was what was causing the GUI bug ("out of sync with the terminal")
+# set_recyclebin_vars
+    # Initializes and sets global variables for the recycle bin system.
+    #
+    # Args:
+    #   (none)
+    #
+    # Returns:
+    #   (none) - Sets the following global variables:
+    #     RECYCLE_BIN: Path to the recycle bin directory in the user's home.
+    #     FILES_DIR:   Path to the directory where recycled files are stored.
+    #     METADATA_LOG: Path to the metadata log file.
+    #     CONFIG:      Path to the recycle bin configuration file.
+    #     LOG:         Path to the recycle bin log file.
+    #
+    # Example:
+    #   set_recyclebin_vars
 
 function human_readable() {
+    # human_readable
+    # Turns the size into a human readable string
+    #
+    # Args:
+    #   Size of the file
+    #
+    # Returns:
+    #   A Human Readable String 
+    #
+    #Example:
+    #   human_readable
+    
         local bytes=$1
         if [ "$bytes" -lt 1024 ]; then
             echo "${bytes}B"
@@ -55,13 +83,8 @@ function initialize_recyclebin() {
     #
     # Example:
     #   initialize
-
-    RECYCLE_BIN="$HOME/.recycle_bin"
-    FILES_DIR="$RECYCLE_BIN/files"
-    METADATA_LOG="$RECYCLE_BIN/metadata.log"
-    CONFIG="$RECYCLE_BIN/config"
-    LOG="$RECYCLE_BIN/recyclebin.log"
-
+    set_recyclebin_vars
+   
     # create directories
     if ! mkdir -p "$FILES_DIR"; then
         echo "ERROR: Unable to create recycle bin directories at $FILES_DIR"
@@ -114,6 +137,7 @@ function delete_file(){
     #   delete myfile.txt
     #   delete file1.txt file2.txt directory/
     
+    set_recyclebin_vars
     
     #error handling: making sure user passes at least one file/dir as an argument
     if [ $# -eq 0 ]; then
@@ -218,7 +242,7 @@ function list_recycled(){
     # Example:
     #   list_recycled --sort size --detailed
     
-
+    set_recyclebin_vars
 
     #I wanted to add a sorting flag to the function and made it sortable by date of deletion, name or size
 
@@ -368,8 +392,12 @@ function restore_file() {
     #   restore_file 12345678
     #   restore_file "my file with spaces.txt"
 
+
+    set_recyclebin_vars
+
     # Helper to trim whitespace
     trim() { echo "$1" | awk '{$1=$1;print}'; }
+
 
     # Accept full argument (with spaces) first fix 
     local lookup="$(trim "$*")"
@@ -594,6 +622,8 @@ function search_recycled(){
     #   search_recycled "report"
     #   search_recycled -i "*.pdf"
     
+    set_recyclebin_vars
+
     local case_insensitive=0
     local pattern
 
@@ -732,6 +762,9 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     #   - Removes matching files/directories and updates the metadata log
     #   - Prints summary of deletions and space freed
     #   - Prompts for confirmation unless --force is specified
+
+    set_recyclebin_vars
+    
     local idArg=""
     local force=false
 
@@ -935,45 +968,38 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     return 0
 }
 
-function show_statistics(){
+function show_statistics() {
     # show_statistics
     # Displays statistics about the recycle bin: item counts, total and average size, quota, oldest/newest item.
     #
-    # Args:
-    #   (none)
-    #
-    # Returns:
-    #   0 on success, 1 if not initialized or on error
-    #
-    # Example:
-    #   statistics
-    
-    local metadata_file="$METADATA_LOG"
-    local config_file="$CONFIG"
-    local recycle_bin="$RECYCLE_BIN"
+    # Args: none
+    # Returns: 0 on success, 1 if not initialized or on error
+    # Example: statistics
 
-    if [ -z "$recycle_bin" ] || [ -z "$metadata_file" ] || [ -z "$config_file" ]; then
+    set_recyclebin_vars
+
+    if [ -z "$RECYCLE_BIN" ] || [ -z "$METADATA_LOG" ] || [ -z "$CONFIG" ]; then
         echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
         return 1
     fi
 
-    if [ ! -f "$metadata_file" ]; then
-        echo "No metadata file found at: $metadata_file"
+    if [ ! -f "$METADATA_LOG" ]; then
+        echo "No metadata file found at: $METADATA_LOG"
         echo "Total items: 0"
         echo "Total size: 0B"
         return 1
     fi
 
     local max_mb=1024
-    if [ -f "$config_file" ]; then
-        val=$(awk -F= '/^MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
+    if [ -f "$CONFIG" ]; then
+        val=$(awk -F= '/^MAX_SIZE_MB=/ {print $2; exit}' "$CONFIG" 2>/dev/null)
         if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
             max_mb=$val
         fi
     fi
     local quota_bytes=$(( max_mb * 1024 * 1024 ))
 
-    #variables for the counters
+    # Variables for the counters
     local total=0
     local total_bytes=0
     local files=0
@@ -996,7 +1022,7 @@ function show_statistics(){
         total=$((total + 1))
         size=${size:-0}
 
-        #making sure its numeric
+        # Ensuring size is numeric
         if ! [[ "$size" =~ ^[0-9]+$ ]]; then
             size=0
         fi
@@ -1008,14 +1034,14 @@ function show_statistics(){
             files=$((files + 1))
         fi
 
-        # if del_date matches expected DDMMYYYYHHMMSS, build sortable key YYYYMMDDHHMMSS and keep ISO form
+        # Build sortable key YYYYMMDDHHMMSS and keep ISO form if del_date matches expected DDMMYYYYHHMMSS
         if [[ $del_date =~ ^[0-9]{14}$ ]]; then
             key="${del_date:4:4}${del_date:2:2}${del_date:0:2}${del_date:8:2}${del_date:10:2}${del_date:12:2}"
             iso="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             keys+=( "${key}|${iso}" )
         fi
 
-    done < "$metadata_file"
+    done < "$METADATA_LOG"
 
     if [ ${#keys[@]} -gt 0 ]; then  
         IFS=$'\n' sorted=($(printf "%s\n" "${keys[@]}" | sort))
@@ -1053,36 +1079,27 @@ function show_statistics(){
 
 function autocleanup(){
     # auto_cleanup
-    # Automatically removes items from the recycle bin that are older than the configured retention period(30 days as per the config file).
+    # Automatically removes items from the recycle bin that are older than the configured retention period (30 days as per the config file).
     #
-    # Args:
-    #   (none)
-    #
-    # Returns:
-    #   0 on success, 1 if not initialized or on error
-    #
-    # Example:
-    #   cleanup
+    # Args: none
+    # Returns: 0 on success, 1 if not initialized or on error
+    # Example: cleanup
 
+    set_recyclebin_vars
 
-    local recycle_bin="$RECYCLE_BIN"
-    local metadata_file="$METADATA_LOG"
-    local config_file="$CONFIG"
-
-    if [ -z "$recycle_bin" ] || [ -z "$metadata_file" ] || [ -z "$config_file" ]; then
+    if [ -z "$RECYCLE_BIN" ] || [ -z "$METADATA_LOG" ] || [ -z "$CONFIG" ]; then
         echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
         return 1
     fi
 
-    if [ ! -f "$metadata_file" ]; then
-        echo "No metadata file found at: $metadata_file"
+    if [ ! -f "$METADATA_LOG" ]; then
+        echo "No metadata file found at: $METADATA_LOG"
         return 1
     fi
 
-    local retention_days=30 #fallback defaults to 30 days if failure to read config file
-
-    if [ -f "$config_file" ]; then
-        val=$(awk -F= '/RETENTION_DAYS=/ {print $2; exit}' "$config_file" 2>/dev/null)
+    local retention_days=30 # fallback default
+    if [ -f "$CONFIG" ]; then
+        val=$(awk -F= '/RETENTION_DAYS=/ {print $2; exit}' "$CONFIG" 2>/dev/null)
         if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
             retention_days="$val"
         fi
@@ -1153,11 +1170,11 @@ function autocleanup(){
                 bytes_removed=$((bytes_removed + size_bytes))
             fi
         fi
-    done < "$metadata_file"
+    done < "$METADATA_LOG"
 
-    #updating the metadata log file
+    # updating the metadata log file
     if [ ${#ids_removed[@]} -gt 0 ]; then
-        tmpf="$(mktemp "${recycle_bin:-/tmp}/cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
+        tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
         while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
             case "$line" in ID* ) echo "$line" >> "$tmpf"; continue ;; esac
@@ -1167,14 +1184,14 @@ function autocleanup(){
                 if [ "$u" = "$id" ]; then skip=1; break; fi
             done
             if [ "$skip" -eq 0 ]; then echo "$line" >> "$tmpf"; fi
-        done < "$metadata_file"
-        if ! mv "$tmpf" "$metadata_file" 2>/dev/null; then 
+        done < "$METADATA_LOG"
+        if ! mv "$tmpf" "$METADATA_LOG" 2>/dev/null; then 
             echo "Failed to update metadata file"
             [ -f "$tmpf" ] && rm "$tmpf"
         fi
     fi
 
-    #building the summary
+    # summary
     echo "Auto-cleanup summary (older than ${retention_days} days):"
     echo "  Items scanned: $processed"
     echo "  Items removed: $removed_count"
@@ -1188,32 +1205,24 @@ function autocleanup(){
     fi
 }
 
-function check_quota(){ #when reached ask if u want to call the autocleanup to delete the oldest file
+function check_quota(){ 
     # check_quota
     # Checks if the recycle bin has reached its configured quota, and calls autocleanup if necessary.
     #
-    # Args:
-    #   (none)
-    #
-    # Returns:
-    #   0 on success, 1 if not initialized or on error
-    #
-    # Example:
-    #   quota
+    # Args: none
+    # Returns: 0 on success, 1 if not initialized or on error
+    # Example: quota
     
+    set_recyclebin_vars
 
-    local config_file="$CONFIG"
-    local recycle_dir="$RECYCLE_BIN"
-    local metadata_file="$METADATA_LOG"
-
-    if [ -z "$config_file" ] || [ -z "$recycle_dir" ] || [ -z "$metadata_file" ]; then 
+    if [ -z "$CONFIG" ] || [ -z "$RECYCLE_BIN" ] || [ -z "$METADATA_LOG" ]; then 
         echo "Recycle bin variables are not initialized. Call initialize_recyclebin first." >&2
         return 1
     fi
     
     local max_mb=1024 #defaults to 1024
-    if [ -f "$config_file" ]; then 
-        val=$(awk -F= '/MAX_SIZE_MB=/ {print $2; exit}' "$config_file" 2>/dev/null)
+    if [ -f "$CONFIG" ]; then 
+        val=$(awk -F= '/MAX_SIZE_MB=/ {print $2; exit}' "$CONFIG" 2>/dev/null)
         if [ -n "$val" ] && [[ "$val" =~ ^[0-9]+$ ]]; then
             max_mb=$val
         fi
@@ -1221,8 +1230,8 @@ function check_quota(){ #when reached ask if u want to call the autocleanup to d
 
     local max_bytes=$((max_mb * 1024 * 1024))
 
-    if [ ! -f "$metadata_file" ]; then
-        echo "No metadata file found at: $metadata_file"
+    if [ ! -f "$METADATA_LOG" ]; then
+        echo "No metadata file found at: $METADATA_LOG"
         return 1
     fi
 
@@ -1239,7 +1248,7 @@ function check_quota(){ #when reached ask if u want to call the autocleanup to d
             size=0
         fi
         total_size=$((total_size + size))
-    done < "$metadata_file"
+    done < "$METADATA_LOG"
 
     #checking if there is a need to call auto cleanup
     if [ "$total_size" -ge "$max_bytes" ]; then
@@ -1418,4 +1427,6 @@ main() {
 }
 
 # Execute main function with all arguments
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

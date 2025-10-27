@@ -1,6 +1,8 @@
 #!/bin/bash
+# Author: Mario Santos (127560), Kelvin Loforte (121420)
+# Date: 2025-10-31
 
-source ./recyclebin.sh
+source ./recycle_bin.sh
 
 check_initialized() {
     if [ ! -d "$HOME/.recycle_bin/files" ] || [ ! -f "$HOME/.recycle_bin/metadata.log" ]; then
@@ -34,7 +36,7 @@ while true; do
     [ -z "$action" ] && break
 
     case "$action" in
-        "Delete File(s)")
+        "Delete File(s)") #works
             check_initialized || continue
             files=$(zenity --file-selection --multiple --separator="|" --title="Select files to be recycled")
             [ -z "$files" ] && continue
@@ -42,12 +44,15 @@ while true; do
             output=$(delete_file "${filelist[@]}")
             zenity --info --text="$output"
             ;;
-        "List Recycled")
+        "List Recycled") #fixed the now text showing bug(--text expects single line output while the list is multiple line so we store the text in a tmp file and display the file instead)
             check_initialized || continue
             output=$(list_recycled)
-            zenity --text-info --title="Recycled items" --width=700 --height=400 --text="$output"
+            tmpfile=$(mktemp)
+            echo "$output" > "$tmpfile"
+            zenity --text-info --title="Recycled items" --width=1000 --height=800 --filename="$tmpfile"
+            rm -f "$tmpfile"
             ;;
-        "Restore Item")
+        "Restore Item") #works
             check_initialized || continue
             id=$(zenity --entry --title="Restore file" --width=700 --height=400 --text="Please enter the UUID or short ID or filename of the file you want to restore: ")
             [ -z "$id" ] && continue
@@ -59,18 +64,21 @@ while true; do
             pattern=$(zenity --entry --title="Search for a file" --width=700 --height=400 --text="Enter the search pattern (enter -i or --ignore-case for case insensitive): ")
             [ -z "$pattern" ] && continue
             output=$(search_recycled "$pattern")
-            zenity --text-info --title="Search Results" --width=700 --height=400 --text="$output"
+            tmpfile=$(mktemp)
+            echo "$output" > "$tmpfile"
+            zenity --text-info --title="Search Results" --width=700 --height=400 --filename="$tmpfile"
+            rm -f "$tmpfile"
             ;;
-        "Empty Bin")
+        "Empty Bin") #works
             check_initialized || continue
-            eb_action=$(zenity --list \
+            action=$(zenity --list --width=700 --height=400\
                 --title="Select Empty mode" \
                 --column="Action" \
                 "Delete ALL files" \
                 "Delete a single file"
             ) || continue
-            [ -z "$eb_action" ] && continue
-            if [ "$eb_action" = "Delete ALL files" ]; then
+            [ -z "$action" ] && continue
+            if [ "$action" = "Delete ALL files" ]; then
                 zenity --question --title="Confirm delete all" \
                     --text="Are you sure you want to delete every item from the recycle bin?"
                 if [ $? -eq 0 ]; then
@@ -87,7 +95,7 @@ while true; do
                 fi
             fi
             ;;
-        "Show Statistics")
+        "Show Statistics") #works
             check_initialized || continue
             output=$(show_statistics)
             zenity --info --title="Recycle Bin Statistics" --width=700 --height=400 --text="$output"
@@ -97,14 +105,17 @@ while true; do
             output=$(autocleanup)
             zenity --info --title="Auto Cleanup" --text="$output"
             ;;
-        "Check Quota")
+        "Check Quota") #works
             check_initialized || continue
             output=$(check_quota)
             zenity --info --title="Quota Check" --text="$output"
             ;;
         "Help/About")
             output=$(display_help)
-            zenity --text-info --title="Help / About" --width=700 --height=500 --text="$output"
+            tmpfile=$(mktemp)
+            echo "$output" > "$tmpfile"
+            zenity --text-info --title="Help / About" --width=700 --height=500 --filename="$tmpfile"
+            rm -f "$tmpfile"
             ;;
         *)
             break
