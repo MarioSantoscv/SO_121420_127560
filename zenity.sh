@@ -69,14 +69,14 @@ while true; do
             zenity --text-info --title="Search Results" --width=700 --height=400 --filename="$tmpfile"
             rm -f "$tmpfile"
             ;;
-        "Empty Bin") #works
+        "Empty Bin") #action is needed to check if u want to empty the whole thing or not
             check_initialized || continue
             action=$(zenity --list --width=700 --height=400\
                 --title="Select Empty mode" \
                 --column="Action" \
                 "Delete ALL files" \
                 "Delete a single file"
-            ) || continue
+            ) || continue 
             [ -z "$action" ] && continue
             if [ "$action" = "Delete ALL files" ]; then
                 zenity --question --title="Confirm delete all" \

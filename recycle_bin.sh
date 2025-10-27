@@ -20,7 +20,9 @@
 
 
 #this was what was causing the GUI bug ("out of sync with the terminal")
-# set_recyclebin_vars
+
+function set_recyclebin_vars() {
+    # set_recyclebin_vars
     # Initializes and sets global variables for the recycle bin system.
     #
     # Args:
@@ -36,6 +38,12 @@
     #
     # Example:
     #   set_recyclebin_vars
+    RECYCLE_BIN="$HOME/.recycle_bin"
+    FILES_DIR="$RECYCLE_BIN/files"
+    METADATA_LOG="$RECYCLE_BIN/metadata.log"
+    CONFIG="$RECYCLE_BIN/config"
+    LOG="$RECYCLE_BIN/recyclebin.log"
+}
 
 function human_readable() {
     # human_readable
