@@ -1,7 +1,10 @@
 
+
 # Recycle Bin Testing Report
 
-
+## Author
+Mario Santos (127560)  
+Kelvin Loforte (121420)
 
 ## Basic Functionality Tests
 

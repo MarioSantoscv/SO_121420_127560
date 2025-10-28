@@ -1,6 +1,8 @@
 #!/bin/bash
 # Test Suite for Recycle Bin System
 
+# Author: Mario Santos (127560), Kelvin Loforte (121420)
+# Date: 2025-10-31
 
 
 #TODO:

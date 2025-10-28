@@ -1046,16 +1046,17 @@ function show_statistics() {
         if [[ $del_date =~ ^[0-9]{14}$ ]]; then
             key="${del_date:4:4}${del_date:2:2}${del_date:0:2}${del_date:8:2}${del_date:10:2}${del_date:12:2}"
             iso="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
-            keys+=( "${key}|${iso}" )
+            keys+=( "${key}|${iso}|${name}" )
         fi
 
     done < "$METADATA_LOG"
 
+
     if [ ${#keys[@]} -gt 0 ]; then  
+        #fixed to show name not date
         IFS=$'\n' sorted=($(printf "%s\n" "${keys[@]}" | sort))
-        unset IFS
-        oldest_ts="${sorted[0]#*|}"
-        newest_ts="${sorted[$(( ${#sorted[@]} - 1 ))]#*|}"
+        oldest_name="${sorted[0]#*|}" #i have to include the | because it wasnt stripping away the | so it was giving an error
+        newest_name="${sorted[$(( ${#sorted[@]} - 1 ))]#*|}" #-1 (array starts at 0)
     fi
         
     if [ "$total" -eq 0 ]; then
@@ -1077,8 +1078,8 @@ function show_statistics() {
     echo "Total items: $total"
     printf "Total size: %s (%d bytes) — quota: %dMB (%s%%)\n" "$(human_readable "$total_bytes")" "$total_bytes" "$max_mb" "$percent"
     echo "Files: $files  Directories: $dirs"
-    [ -n "$oldest_ts" ] && echo "Oldest item: $oldest_ts" || echo "Oldest item: N/A"
-    [ -n "$newest_ts" ] && echo "Newest item: $newest_ts" || echo "Newest item: N/A"
+    [ -n "$oldest_ts" ] && echo "Oldest item: $oldest_name" || echo "Oldest item: N/A"
+    [ -n "$newest_ts" ] && echo "Newest item: $newest_name" || echo "Newest item: N/A"
     printf "Average item size: %s (%d bytes)\n" "$(human_readable "$avg")" "$avg"
 
     return 0
@@ -1204,13 +1205,7 @@ function autocleanup(){
     echo "  Items scanned: $processed"
     echo "  Items removed: $removed_count"
     echo "  Space freed: $(human_readable "$bytes_removed") ($bytes_removed bytes)"
-    if [ ${#failed[@]} -gt 0 ]; then
-        echo "  Failures: ${#failed[@]}"
-        for e in "${failed[@]}"; do
-            IFS='|' read -r uu rec why <<< "$e"
-            echo "    $uu -> $rec  ($why)"
-        done
-    fi
+    
 }
 
 function check_quota(){ 
@@ -1267,6 +1262,62 @@ function check_quota(){
     fi
 }
 
+
+function preview_file() {
+    #preview_file
+    #Shows first 10 lines of a text files and displays file type information for binary files
+    #
+    #Args
+    # $1:ID of the file you wish to preview
+    # Returns: 0 on success, 1 if not initialized or on error
+    #Example
+    #preview 1234596
+
+
+    set_recyclebin_vars
+
+    local file_id="$1"
+    
+    while IFS= read -r line || [ -n "$line" ]; do
+            #skip empty lines
+            [ -z "$line" ] && continue
+
+            #skip the header
+            case "$line" in
+                ID* ) continue ;;
+            esac
+
+            # expected format from the delete_file function:
+            # id|name|orig_path|del_date|size|ftype|perms|owner
+            IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
+            if [[ "$id" == "$file_id" ]]; then
+                file_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
+                file_id="$id" #re using the logic of only having 8 digits in the id
+                # only include items that currently exist in the recycle bin
+                [ -e "$file_path" ] || continue
+        
+
+                # Verificar o tipo de ficheiro (texto ou binário)
+                local file_type=$(file -b --mime-type "$file_path")
+
+                echo "-----------------------------------"
+                echo "Pré-visualização do ficheiro: $file_id"
+                echo "Tipo: $file_type"
+                echo "-----------------------------------"
+
+                # Se for texto, mostrar as 10 primeiras linhas
+                if [[ "$file_type" == text/* ]]; then
+                echo "Primeiras 10 linhas:"
+                echo "-----------------------------------"
+                head -n 10 "$file_path"
+                echo "-----------------------------------"
+                else
+                echo "Ficheiro binário — pré-visualização não disponível."
+                fi
+            fi
+    done < "$METADATA_LOG"
+    return 0
+}
 
 function display_help(){ #using teacher suggestion(cat << EOF)
 
@@ -1421,8 +1472,8 @@ main() {
         preview)
             initialize_recyclebin || exit 1
             shift
-            # preview_file "$1" # If you add a preview_file function
-            echo "Preview not implemented yet."
+            preview_file "$1"
+            
             ;;
         help|--help|-h)
             display_help

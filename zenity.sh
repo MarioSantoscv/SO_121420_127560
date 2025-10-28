@@ -29,6 +29,7 @@ while true; do
         "Show Statistics" \
         "Cleanup" \
         "Check Quota" \
+        "Preview File" \
         "Help/About"
     )
 
@@ -109,6 +110,16 @@ while true; do
             check_initialized || continue
             output=$(check_quota)
             zenity --info --title="Quota Check" --text="$output"
+            ;;
+        "Preview File")
+            check_initialized || continue
+            id=$(zenity --entry --title="Preview File" --width=700 --height=400 --text="Please enter the UUID of the file you want to preview: ")
+            [ -z "$id" ] && continue
+            output=$(preview_file "$id")
+            tmpfile=$(mktemp)
+            echo "$output" > "$tmpfile"
+            zenity --text-info --title="Preview" --width=700 --height=400 --filename="$tmpfile"
+            rm -f "$tmpfile"
             ;;
         "Help/About")
             output=$(display_help)
