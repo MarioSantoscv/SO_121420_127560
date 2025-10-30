@@ -2,7 +2,6 @@
 
 #ls ~/.recycle_bin/files
 #cat ~/.recycle_bin/metadata.log
-#TODO: add comments to functions, finish doing the functions, write a test script and a readme file 
 #in the readme explain what all of the metadad bits are 
 
 #helper function for human readable bytes
@@ -237,7 +236,7 @@ function delete_file(){
 
 
 }
-function list_recycled(){
+function list_recycled(){ 
     # list_recycled
     # Lists all files and directories in the recycle bin. Can show a detailed list (with full metadata) or a compact list (ID, name, deletion date, size).
     #
@@ -260,7 +259,7 @@ function list_recycled(){
         case $1 in
             --sort)
                 sort_by="$2"
-                shift 2 #removing the flag and its argument just to make handling easier if necessary (done by copilot)
+                shift 2 
                 ;;
             --detailed)
                 detailed=1
@@ -341,7 +340,7 @@ function list_recycled(){
 
     # choose sort option (date: newest first thats why i put the r flag for reverse order, the n flag is for numeric so the size is done largest first)
     case "$sort_by" in
-        name) sort_args=(-t'|' -k2,2) ;;          
+        name) sort_args=(-t'|' -k2,2) ;;      #-k, --key=KEYDEF          sort via a key; KEYDEF gives location and type     
         size) sort_args=(-t'|' -k4,4nr) ;;        
         date) sort_args=(-t'|' -k3,3r) ;;        
         *)
@@ -404,7 +403,7 @@ function restore_file() {
     set_recyclebin_vars
 
     # Helper to trim whitespace
-    trim() { echo "$1" | awk '{$1=$1;print}'; }
+    trim() { echo "$1" | awk '{$1=$1;print}'; } #the awk is what trims it because it repasses the field one and it by defaults removes the trailing whitespaces
 
 
     # Accept full argument (with spaces) first fix 
@@ -510,7 +509,7 @@ function restore_file() {
         return 1
     fi
 
-    # using the same size calculation method to see if there is enough space to restore
+    # using the same size calculation method to see if there is enough space to restore (used above also)
     if [ -d "$recycle_path" ]; then
         size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1)
         size_bytes=$(( ${size_kb:-0} * 1024 ))
@@ -529,14 +528,14 @@ function restore_file() {
         esac
     fi
 
-    if [ ! -w "$dest_parent" ]; then #fixing the edge case error where i could restore to a 555 dir 
+    if [ ! -w "$dest_parent" ]; then 
         echo "Error: Parent directory '$dest_parent' is not writable. Restore aborted."
         return 1
     fi
 
-    # check disk space on destination filesystem
-    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null | awk 'END{print $4+0}')
-    need_kb=$(( (size_bytes + 1023) / 1024 ))
+    #added awk to remove weird outup it was returning (help copilot)
+    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null |awk 'NR==2 {print $4}') #df is how u checkl the space in the disk it chckes the file system that contains destination filesystem
+    need_kb=$(( (size_bytes + 1023) / 1024 )) #+1023 so it rounds up to the next whole byte 
     if [ -n "$avail_kb" ] && [ "$avail_kb" -lt "$need_kb" ]; then
         echo "Not enough disk space to restore (need ${need_kb}K, have ${avail_kb}K)."
         return 1
@@ -594,7 +593,7 @@ function restore_file() {
             chmod "$perms" "$dest" 2>/dev/null || echo "Warning: chmod failed for $dest"
         fi
 
-        # remove the metadata line (matching the exact ID)
+        # remove the metadata line (matching the exact ID)(same method i got from copilot (reused many times along tthe code))
         tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/restore.XXXXXXXX")" || tmpf="/tmp/restore.$$"
         awk -F'|' -v id="$id" '$1 != id { print }' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
             echo "Warning: failed to update metadata log; metadata may still reference the restored item."
@@ -745,6 +744,7 @@ function search_recycled(){
     return 0
 }
 
+#check
 function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the delete function when in single mode
     # empty_recyclebin
     # Permanently deletes items from the recycle bin, either all items or a specific item by ID or filename.
@@ -858,6 +858,8 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
         return 0
     fi
 
+
+    #this block handles when we have multiple files with the same name and  need to select which one to delete has option for canceling
     local to_delete=()
     if [ "$mode" = "single" ] && [ ${#lines_to_delete[@]} -gt 1 ] && [ "$force" != "true" ]; then
         echo "Multiple matches found:"
@@ -942,20 +944,23 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
         fi
     done
 
-    # Update metadata.log: remove lines matching removed_ids
+    # Update metadata.log: remove lines matching removed_ids 
     if [ ${#removed_ids[@]} -gt 0 ]; then
-        tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/empty.XXXXXXXX")" || tmpf="/tmp/empty.$$"
-        awk -F'|' -v ids="$(IFS=,; echo "${removed_ids[*]}")" '
-            BEGIN {
-                split(ids, arr, ",");
-                for (i in arr) idset[arr[i]] = 1;
-            }
-            $1 == "ID" { print; next }
-            !($1 in idset) { print }
-        ' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
+        tmpf="/tmp/empty.$$"
+        while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "$line" ] && continue
+            case "$line" in ID* ) echo "$line" >> "$tmpf"; continue ;; esac
+            IFS='|' read -r id rest <<< "$line"
+            local skip=0
+            for u in "${removed_ids[@]}"; do
+                if [ "$u" = "$id" ]; then skip=1; break; fi
+            done
+            if [ "$skip" -eq 0 ]; then echo "$line" >> "$tmpf"; fi
+        done < "$METADATA_LOG"
+        if ! mv "$tmpf" "$METADATA_LOG" 2>/dev/null; then 
             echo "Warning: failed to update metadata log; metadata may still reference deleted items."
             [ -f "$tmpf" ] && rm -f "$tmpf"
-        }
+        fi
     fi
 
     #summary 
@@ -968,7 +973,7 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     if [ ${#failed[@]} -gt 0 ]; then
         echo "  Failures: ${#failed[@]}"
         for e in "${failed[@]}"; do
-            IFS='|' read -r uu rec why <<< "$e"
+            IFS='|' read -r uu rec why <<< "$e" #uu is id rec is path why is the failed rm returned if failed
             echo "    $uu -> $rec  ($why)"
         done
     fi
@@ -1055,7 +1060,7 @@ function show_statistics() {
     if [ ${#keys[@]} -gt 0 ]; then  
         #fixed to show name not date
         IFS=$'\n' sorted=($(printf "%s\n" "${keys[@]}" | sort))
-        oldest_name="${sorted[0]#*|}" #i have to include the | because it wasnt stripping away the | so it was giving an error
+        oldest_name="${sorted[0]#*|}" #if no | returs key also
         newest_name="${sorted[$(( ${#sorted[@]} - 1 ))]#*|}" #-1 (array starts at 0)
     fi
         
@@ -1075,7 +1080,7 @@ function show_statistics() {
     fi
     local avg=$(( total_bytes / total ))
 
-    echo "Total items: $total"
+   echo "Total items: $total"
     printf "Total size: %s (%d bytes) — quota: %dMB (%s%%)\n" "$(human_readable "$total_bytes")" "$total_bytes" "$max_mb" "$percent"
     echo "Files: $files  Directories: $dirs"
     [ -n "$oldest_ts" ] && echo "Oldest item: $oldest_name" || echo "Oldest item: N/A"
@@ -1086,7 +1091,7 @@ function show_statistics() {
 }
 
 
-function autocleanup(){
+function autocleanup(){ #check this
     # auto_cleanup
     # Automatically removes items from the recycle bin that are older than the configured retention period (30 days as per the config file).
     #
@@ -1183,7 +1188,7 @@ function autocleanup(){
 
     # updating the metadata log file
     if [ ${#ids_removed[@]} -gt 0 ]; then
-        tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/cleanup.XXXXXXXX")" || tmpf="/tmp/cleanup.$$"
+        tmpf="/tmp/cleanup.$$"
         while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
             case "$line" in ID* ) echo "$line" >> "$tmpf"; continue ;; esac
@@ -1292,7 +1297,7 @@ function preview_file() {
             IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
             if [[ "$id" == "$file_id" ]]; then
                 file_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
-                file_id="$id" #re using the logic of only having 8 digits in the id
+                file_id="$id" 
                 # only include items that currently exist in the recycle bin
                 [ -e "$file_path" ] || continue
         
