@@ -10,11 +10,11 @@ A bash-based Linux Recycle Bin system implemented for the discipline "Sistemas O
 ## Installation
 
 1. **Download the Script**  
-   Clone or copy `recyclebin.sh` to your home directory or preferred location.
+   Clone or copy `recycle_bin.sh.sh` to your home directory or preferred location.
 
 2. **Make Executable**  
    ```bash
-   chmod +x recyclebin.sh
+   chmod +x recycle_bin.sh.sh
    ```
 
 
@@ -22,7 +22,7 @@ A bash-based Linux Recycle Bin system implemented for the discipline "Sistemas O
 
 Before using most commands, initialize the recycle bin:
 ```bash
-./recyclebin.sh initialize
+./recycle_bin.sh.sh initialize
 ```
 
 **Delete files or directories:**
@@ -32,48 +32,48 @@ Before using most commands, initialize the recycle bin:
 
 **List recycled items:**
 ```bash
-./recyclebin.sh list
-./recyclebin.sh list --detailed
-./recyclebin.sh list --sort name
+./recycle_bin.sh.sh list
+./recycle_bin.sh.sh list --detailed
+./recycle_bin.sh.sh list --sort name
 ```
 
 **Restore a file:**
 ```bash
-./recyclebin.sh restore <UUID-or-short-id-or-filename>
+./recycle_bin.sh.sh restore <UUID-or-short-id-or-filename>
 ./recycle_bin.sh restore myfile.txt
 ```
 
 **Search for files:**
 ```bash
-./recyclebin.sh search "report"
-./recyclebin.sh search "*.pdf"
+./recycle_bin.sh.sh search "report"
+./recycle_bin.sh.sh search "*.pdf"
 ```
 
 **Empty the recycle bin:**
 ```bash
-./recyclebin.sh empty
-./recyclebin.sh empty --force
-./recyclebin.sh empty <UUID-or-short-id-or-filename>
+./recycle_bin.sh.sh empty
+./recycle_bin.sh.sh empty --force
+./recycle_bin.sh.sh empty <UUID-or-short-id-or-filename>
 ```
 
 **Show statistics:**
 ```bash
-./recyclebin.sh statistics
+./recycle_bin.sh.sh statistics
 ```
 
 **Auto-cleanup old files:**
 ```bash
-./recyclebin.sh cleanup
+./recycle_bin.sh.sh cleanup
 ```
 
 **Check quota:**
 ```bash
-./recyclebin.sh quota
+./recycle_bin.sh.sh quota
 ```
 
 **Show help:**
 ```bash
-./recyclebin.sh help
+./recycle_bin.sh.sh help
 ./recycle_bin.sh --help
 ./recycle_bin.sh -h
 ```
@@ -111,98 +111,98 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ### 1. Deleting Files or Directories
 
 ```bash
-./recyclebin.sh delete ~/Documents/example.txt
+./recycle_bin.sh.sh delete ~/Documents/example.txt
 ```
-![Screenshot](/screenshots/singledelete_test.png)
-![Screenshot](/screenshots/multiple_deletions(dirs%20and%20files).png)
+![Screenshot](/screenshots/basic_functionality_cases/singledelete_test.png)
+![Screenshot](/screenshots/basic_functionality_cases/multiple_deletions(dirs%20and%20files).png)
 
 ---
 
 ### 2. Listing Recycled Items (Compact and Detailed)
 
 ```bash
-./recyclebin.sh list
-./recyclebin.sh list --detailed
-./recyclebin.sh list --sort name
-./recyclebin.sh list --sort size --detailed
+./recycle_bin.sh.sh list
+./recycle_bin.sh.sh list --detailed
+./recycle_bin.sh.sh list --sort name
+./recycle_bin.sh.sh list --sort size --detailed
 ```
-![Screenshot](/screenshots/listtest.png)
-![Screenshot](/screenshots/list_test_of_sortflag.png)
+![Screenshot](/screenshots/basic_functionality_cases/listtest.png)
+![Screenshot](/screenshots/basic_functionality_cases/list_test_of_sortflag.png)
 ---
 
 ### 3. Restoring Files or Directories
 
 ```bash
-./recyclebin.sh restore example.txt
-./recyclebin.sh restore 12345678
+./recycle_bin.sh.sh restore example.txt
+./recycle_bin.sh.sh restore 12345678
 ```
-![Screenshot](/screenshots/restoretest.png)
+![Screenshot](/screenshots/basic_functionality_cases/restoretest.png)
 ---
 
 ### 4. Searching for Recycled Items
 
 ```bash
-./recyclebin.sh search "*.pdf"
-./recyclebin.sh search report
-./recyclebin.sh search -i "presentation" (case insensitive)
+./recycle_bin.sh.sh search "*.pdf"
+./recycle_bin.sh.sh search report
+./recycle_bin.sh.sh search -i "presentation" (case insensitive)
 ```
-![Screenshot](/screenshots/search_test.png)
+![Screenshot](/screenshots/basic_functionality_cases/search_test.png)
 ---
 
 ### 5. Emptying the Recycle Bin (All or Single Item)
 
 ```bash
-./recyclebin.sh empty
-./recyclebin.sh empty --force
-./recyclebin.sh empty example.txt
-./recyclebin.sh empty 12345678
+./recycle_bin.sh.sh empty
+./recycle_bin.sh.sh empty --force
+./recycle_bin.sh.sh empty example.txt
+./recycle_bin.sh.sh empty 12345678
 ```
-![Screenshot](/screenshots/empty_test1.png)
-![Screenshot](/screenshots/empty_test2.png)
+![Screenshot](/screenshots/basic_functionality_cases/empty_test1.png)
+![Screenshot](/screenshots/basic_functionality_cases/empty_test2.png)
 ---
 
 ### 6. Showing Statistics
 
 ```bash
-./recyclebin.sh statistics
+./recycle_bin.sh.sh statistics
 ```
-![Screenshot](/screenshots/statistics_test.png)
+![Screenshot](/screenshots/basic_functionality_cases/statistics_test.png)
 ---
 
 ### 7. Auto-cleanup (Removing Old Files Automatically)
 
 ```bash
-./recyclebin.sh cleanup
+./recycle_bin.sh.sh cleanup
 ```
-![Screenshot](/screenshots/autocleanup_test.png)
+![Screenshot](/screenshots/basic_functionality_cases/autocleanup_test.png)
 ---
 
 ### 8. Quota Management (Check Space and Trigger Cleanup)
 
 ```bash
-./recyclebin.sh quota
+./recycle_bin.sh.sh quota
 ```
-![Screenshot](/screenshots/quotatest.png)
+![Screenshot](/screenshots/basic_functionality_cases/quotatest.png)
 ---
 
 ### 9. Previewing Files Before Restore
 
 ```bash
-./recyclebin.sh preview 12345678
+./recycle_bin.sh.sh preview 12345678
 ```
-
+![Screenshot](/screenshots/basic_functionality_cases/previewbinary.png)
+![Screenshot](/screenshots/basic_functionality_cases/previewtext.png)
 ---
 
 ### 10. Help Command (Show Usage Info)
 
 ```bash
-./recyclebin.sh help
-./recyclebin.sh --help
-./recyclebin.sh -h
+./recycle_bin.sh.sh help
+./recycle_bin.sh.sh --help
+./recycle_bin.sh.sh -h
 ```
-
+![Screenshot](/screenshots/basic_functionality_cases/helptest.png)
 ---
-
 
 ## Known Issues
 - Cannot handle link resotoration.

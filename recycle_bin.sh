@@ -127,11 +127,6 @@ function initialize_recyclebin() {
 
 
 function delete_file(){ 
-    #fix 255 letter edge case
-
-
-
-
     # delete_file
     # Deletes the files adding them to the recycle bin and storing their metadata.
     #
@@ -148,7 +143,7 @@ function delete_file(){
     
     #error handling: making sure user passes at least one file/dir as an argument
     if [ $# -eq 0 ]; then
-        echo "usage: delete_file <file_or_folder>"
+        echo "usage: recycle_bin.sh delete <file_or_folder>"
         return 1
     fi
 
@@ -412,7 +407,7 @@ function restore_file() {
     local idx=0
 
     if [ -z "$lookup" ]; then
-        echo "Usage: restore_file <UUID-or-short-id-or-filename>"
+        echo "Usage: recycle_bin.sh restore <UUID-or-short-id-or-filename>"
         return 1
     fi
 
@@ -593,12 +588,23 @@ function restore_file() {
             chmod "$perms" "$dest" 2>/dev/null || echo "Warning: chmod failed for $dest"
         fi
 
-        # remove the metadata line (matching the exact ID)(same method i got from copilot (reused many times along tthe code))
-        tmpf="$(mktemp "${RECYCLE_BIN:-/tmp}/restore.XXXXXXXX")" || tmpf="/tmp/restore.$$"
-        awk -F'|' -v id="$id" '$1 != id { print }' "$METADATA_LOG" > "$tmpf" && mv "$tmpf" "$METADATA_LOG" || {
+        tmpf="/tmp/restore.$$"
+        while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "$line" ] && continue
+            case "$line" in ID* ) echo "$line" >> "$tmpf"; continue ;; esac
+            IFS='|' read -r entry_id rest <<< "$line"
+            skip=0
+            if [ "$entry_id" = "$id" ]; then
+                skip=1
+            fi
+            if [ "$skip" -eq 0 ]; then
+                echo "$line" >> "$tmpf"
+            fi
+        done < "$METADATA_LOG"
+        if ! mv "$tmpf" "$METADATA_LOG" 2>/dev/null; then 
             echo "Warning: failed to update metadata log; metadata may still reference the restored item."
             [ -f "$tmpf" ] && rm -f "$tmpf"
-        }
+        fi
 
         # log operation
         LOG="${RECYCLE_BIN:-$HOME/.recycle_bin}/recyclebin.log"
@@ -640,10 +646,10 @@ function search_recycled(){
             -i|--ignore-case)
                 case_insensitive=1; shift ;;
             -h|--help)
-                echo "Usage: search_recycled [-i|--ignore-case] <pattern>"
+                echo "Usage: recycle_bin.sh search [-i|--ignore-case] <pattern>"
                 echo "Examples:"
-                echo "  search_recycled \"report\""
-                echo "  search_recycled \"*.pdf\""
+                echo "  recycle_bin.sh search \"report\""
+                echo "  recycle_bin.sh search \"*.pdf\""
                 return 0
                 ;;
             -*) printf "Unknown option: %s\n" "$1"
@@ -745,7 +751,7 @@ function search_recycled(){
 }
 
 #check
-function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the delete function when in single mode
+function empty_recyclebin(){ 
     # empty_recyclebin
     # Permanently deletes items from the recycle bin, either all items or a specific item by ID or filename.
     #
@@ -765,12 +771,7 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
     #       # Asks for confirmation before deleting item with that ID
     #   empty_recyclebin --force myfile.txt
     #       # Deletes item with that name/ID without confirmation
-    #
-    # Notes:
-    #   - Removes matching files/directories and updates the metadata log
-    #   - Prints summary of deletions and space freed
-    #   - Prompts for confirmation unless --force is specified
-
+  
     set_recyclebin_vars
     
     local idArg=""
@@ -783,7 +784,7 @@ function empty_recyclebin(){ #ask teacher if this wouldnt be the same as the del
                 if [[ -z "$idArg" ]]; then
                     idArg="$a"
                 else
-                    echo "Usage: empty_recyclebin [--force] [<UUID-or-short-id-or-filename>]"
+                    echo "Usage: recycle_bin.sh empty [--force] [<UUID-or-short-id-or-filename>]"
                     return 1
                 fi
                 ;;
@@ -1091,7 +1092,7 @@ function show_statistics() {
 }
 
 
-function autocleanup(){ #check this
+function autocleanup(){
     # auto_cleanup
     # Automatically removes items from the recycle bin that are older than the configured retention period (30 days as per the config file).
     #
@@ -1281,7 +1282,16 @@ function preview_file() {
 
     set_recyclebin_vars
 
+    
+
+    if [ $# -eq 0 ]; then
+        echo "usage: recycle_bin.sh preview <id>"
+        return 1
+    fi
+
+
     local file_id="$1"
+    
     
     while IFS= read -r line || [ -n "$line" ]; do
             #skip empty lines
@@ -1337,27 +1347,27 @@ function display_help(){ #using teacher suggestion(cat << EOF)
     Linux Recycle Bin - Usage Guide
 
     Usage: 
-        ./recyclebin.sh <command> [options] [arguments]
+        ./recycle_bin.sh.sh <command> [options] [arguments]
 
     Commands:
         initialize
             Initialize the recycle bin dir structure and the files
             Example: 
-                ./recyclebin.sh initialize
+                ./recycle_bin.sh.sh initialize
         
         delete <paths...>
             Move one or more files to the recycling bin
             Example: 
-                ./recyclebin.sh delete /path/to/file.txt /path/to/dir
+                ./recycle_bin.sh.sh delete /path/to/file.txt /path/to/dir
         
         list [--sort <date|name|size>] [--detailed]
             List recycled items. --sort is set to date by default (newest file firstr)
             --detailed shows full metadata
             Example: 
-                ./recyclebin.sh list
-                ./recyclebin.sh list --detailed
-                ./recyclebin.sh list --sort name
-                ./recyclebin.sh list --sort name --detailed
+                ./recycle_bin.sh.sh list
+                ./recycle_bin.sh.sh list --detailed
+                ./recycle_bin.sh.sh list --sort name
+                ./recycle_bin.sh.sh list --sort name --detailed
 
         restore <UUID-or-short-id-or-filename>
             Restores an item, identifying them through ID (may use the full ID or just the 8 first chars (created a shorter id for convinience)) or filename 
@@ -1477,7 +1487,7 @@ main() {
         preview)
             initialize_recyclebin || exit 1
             shift
-            preview_file "$1"
+            preview_file "$@"
             
             ;;
         help|--help|-h)
@@ -1490,7 +1500,7 @@ main() {
     esac
 }
 
-# Execute main function with all arguments
+# Execute main function with all arguments(COPILOT) done to fix GUI bug
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
