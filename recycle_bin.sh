@@ -149,8 +149,8 @@ function delete_file(){
 
     for path in "$@"; do 
         if [ ! -e "$path" ]; then 
-        echo "File or directory does not exist: $path"
-        continue
+            echo "File or directory does not exist: $path"
+            continue
         fi
 
         # To make sure we cant delete the recycle bin or its contents
@@ -176,7 +176,6 @@ function delete_file(){
             fi
         fi
 
-        
         if [ ! -w "$FILES_DIR" ]; then
             echo "Error: Cannot write to recycle bin destination: $FILES_DIR"
             continue
@@ -186,8 +185,7 @@ function delete_file(){
     
         abs_path="$(realpath "$path")" 
         base_name="$(basename "$path")"
-        uuid_str="$(uuidgen)"
-        uid_short="${uuid_str:0:8}" #after doing the other functions i realized its better to use a shorter id 
+        uuid_str="$(uuidgen)" 
         ts="$(date +%d%m%Y%H%M%S)"
         recycle_name="${base_name}_${uuid_str}"
         dest_path="$FILES_DIR/$recycle_name"
@@ -198,14 +196,12 @@ function delete_file(){
         perms=$(stat -c '%a' "$path")
         owner=$(stat -c '%U' "$path")
         group=$(stat -c '%G' "$path")
-       
-
 
         #getting file size and type (used copilot help)
         if [ -d "$path" ]; then
             ftype="directory"
             if du -sb "$path" >/dev/null 2>&1; then
-                size=$(du -sb "$path" | cut -f1) #cut getsd me the first field which is the size
+                size=$(du -sb "$path" | cut -f1) #cut gets me the first field which is the size
             else
                 size_kb=$(du -s "$path" | cut -f1)
                 size=$((size_kb * 1024))
@@ -215,12 +211,12 @@ function delete_file(){
             size=$(stat -c '%s' "$path" 2>/dev/null || printf '0')
         fi
 
-
         #moving the file/dir
 
         if mv -- "$path" "$dest_path"; then
             echo "Recycled: $abs_path -> $dest_path"
-            echo "$uid_short|$base_name|$abs_path|$ts|$size|$ftype|$perms|$owner" >> "$METADATA_LOG" || \
+           
+            echo "$uuid_str|$base_name|$abs_path|$ts|$size|$ftype|$perms|$owner" >> "$METADATA_LOG" || \
                 echo "Warning: failed to write metadata for $path"
             echo "$(date +"%Y-%m-%d %H:%M:%S") MOVED $abs_path -> $dest_path size=${size} type=${ftype} uuid=${uuid_str}" >> "$LOG" 2>/dev/null
         else
@@ -228,8 +224,6 @@ function delete_file(){
             echo "$(date +"%Y-%m-%d %H:%M:%S") FAILED_MOVE $abs_path -> $dest_path" >> "$LOG" 2>/dev/null
         fi
     done
-
-
 }
 function list_recycled(){ 
     # list_recycled
@@ -289,6 +283,7 @@ function list_recycled(){
         # id|name|orig_path|del_date|size|ftype|perms|owner
         IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
+        # Use full UUID for lookup, not just the short
         recycle_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
 
         # only include items that currently exist in the recycle bin
@@ -306,7 +301,6 @@ function list_recycled(){
             size_bytes=$(stat -c '%s' "$recycle_path" 2>/dev/null || echo 0)
         fi
 
-
         size_hr="$(human_readable "$size_bytes")"
 
         # convert timestamp ddmmyyyyHHMMSS -> "YYYY-MM-DD HH:MM:SS" (if matches expected format)
@@ -316,11 +310,11 @@ function list_recycled(){
             del_date_fmt="$del_date"
         fi
 
-        id_short="${id:0:8}"   # #did this because uuids are very long so i decided to use a more compact form (used 8 chars just because it looks good and the odds of collision are slim)(why i changed the deletefunction too)
+        
+        id_short="${id:0:8}"   # only done for display
         size_hr="$(human_readable "$size_bytes")"  
         name="$(basename "$orig_path")"
         
-
         # store an entry with this format: $id|$name|$del_date|$size|$size_hr|$ftype|$perms|$owner|$orig_path
         entries+=( "$id_short|$name|$del_date_fmt|$size_bytes|$size_hr|$ftype|$perms|$owner|$orig_path|$id|$recycle_path" )
         total_count=$(( total_count + 1 ))
@@ -333,7 +327,7 @@ function list_recycled(){
         return 0
     fi
 
-    # choose sort option (date: newest first thats why i put the r flag for reverse order, the n flag is for numeric so the size is done largest first)
+    # choose sort option (date: newest last thats why i put the r flag for reverse order, the n flag is for numeric so the size is done largest first)
     case "$sort_by" in
         name) sort_args=(-t'|' -k2,2) ;;      #-k, --key=KEYDEF          sort via a key; KEYDEF gives location and type     
         size) sort_args=(-t'|' -k4,4nr) ;;        
@@ -391,17 +385,15 @@ function restore_file() {
     #   0 on success, 1 on error or invalid usage.
     #
     # Example:
-    #   restore_file 12345678
+    #   restore_file f5bbd0c4-6f48-4bbd-bd8d-6bd9b9b4bfa4
     #   restore_file "my file with spaces.txt"
-
 
     set_recyclebin_vars
 
     # Helper to trim whitespace
-    trim() { echo "$1" | awk '{$1=$1;print}'; } #the awk is what trims it because it repasses the field one and it by defaults removes the trailing whitespaces
+    trim() { echo "$1" | awk '{$1=$1;print}'; }
 
-
-    # Accept full argument (with spaces) first fix 
+    # Accept full argument (with spaces)
     local lookup="$(trim "$*")"
     local matches=()
     local idx=0
@@ -429,13 +421,17 @@ function restore_file() {
 
         recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
 
-        # see if fields are not empty
         [ -z "$id" ] && continue
         [ -z "$recycle_path" ] && continue
 
-        # Matching logic, with all variables quoted and trimmed(second fix)
+        # Matching logic
+        
         if [ "$lookup" = "$id" ] || [[ "$id" == "$lookup"* ]] || [ "$lookup" = "$base_name" ] || [ "$lookup" = "$orig_path" ] || [ "$lookup" = "$name" ]; then
-            matches+=("$line")
+            if [ "$ftype" = "directory" ]; then
+                matches+=("$line")
+            elif [ "$ftype" = "file" ]; then
+                matches+=("$line")
+            fi
         fi
     done < "$METADATA_LOG"
 
@@ -454,7 +450,6 @@ function restore_file() {
             name="$(trim "$name")"
             orig_path="$(trim "$orig_path")"
             base_name="$(trim "$(basename "$orig_path")")"
-            # readable timestamp if possible (ddmmyyyyHHMMSS -> YYYY-MM-DD HH:MM:SS)
             if [[ $del_date =~ ^[0-9]{14}$ ]]; then
                 del_date_fmt="${del_date:4:4}-${del_date:2:2}-${del_date:0:2} ${del_date:8:2}:${del_date:10:2}:${del_date:12:2}"
             else
@@ -504,7 +499,7 @@ function restore_file() {
         return 1
     fi
 
-    # using the same size calculation method to see if there is enough space to restore (used above also)
+    # using the same size calculation method to see if there is enough space to restore
     if [ -d "$recycle_path" ]; then
         size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1)
         size_bytes=$(( ${size_kb:-0} * 1024 ))
@@ -528,9 +523,9 @@ function restore_file() {
         return 1
     fi
 
-    #added awk to remove weird outup it was returning (help copilot)
-    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null |awk 'NR==2 {print $4}') #df is how u checkl the space in the disk it chckes the file system that contains destination filesystem
-    need_kb=$(( (size_bytes + 1023) / 1024 )) #+1023 so it rounds up to the next whole byte 
+    #added awk to remove weird output
+    avail_kb=$(df -P -k "$dest_parent" 2>/dev/null |awk 'NR==2 {print $4}')
+    need_kb=$(( (size_bytes + 1023) / 1024 ))
     if [ -n "$avail_kb" ] && [ "$avail_kb" -lt "$need_kb" ]; then
         echo "Not enough disk space to restore (need ${need_kb}K, have ${avail_kb}K)."
         return 1
@@ -545,7 +540,6 @@ function restore_file() {
         select opt in "${options[@]}"; do
             case "$REPLY" in
                 1)
-                    # Overwrite: remove existing (prompt for final confirmation)
                     read -rp "Are you sure you want to overwrite $dest ? [y/N]: " ok
                     case "$ok" in
                         [Yy]* )
@@ -583,7 +577,6 @@ function restore_file() {
     # perform the move
     if mv -- "$recycle_path" "$dest"; then
         echo "Restored: $dest"
-        # restore perms
         if [ -n "$perms" ]; then
             chmod "$perms" "$dest" 2>/dev/null || echo "Warning: chmod failed for $dest"
         fi
@@ -606,7 +599,6 @@ function restore_file() {
             [ -f "$tmpf" ] && rm -f "$tmpf"
         fi
 
-        # log operation
         LOG="${RECYCLE_BIN:-$HOME/.recycle_bin}/recyclebin.log"
         echo "$(date +"%Y-%m-%d %H:%M:%S") RESTORED $id -> $dest size=${size_bytes}" >> "$LOG" 2>/dev/null
 

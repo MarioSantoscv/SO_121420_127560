@@ -115,9 +115,8 @@ while true; do
             check_initialized || continue
             id=$(zenity --entry --title="Preview File" --width=700 --height=400 --text="Please enter the UUID of the file you want to preview: ")
             [ -z "$id" ] && continue
-            output=$(preview_file "$id")
             tmpfile=$(mktemp)
-            echo "$output" > "$tmpfile"
+            preview_file "$id" > "$tmpfile"
             zenity --text-info --title="Preview" --width=700 --height=400 --filename="$tmpfile"
             rm -f "$tmpfile"
             ;;
