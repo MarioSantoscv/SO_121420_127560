@@ -67,7 +67,7 @@ while true; do
             output=$(search_recycled "$pattern")
             tmpfile=$(mktemp)
             echo "$output" > "$tmpfile"
-            zenity --text-info --title="Search Results" --width=700 --height=400 --filename="$tmpfile"
+            zenity --text-info --title="Search Results" --width=1600 --height=800 --filename="$tmpfile"
             rm -f "$tmpfile"
             ;;
         "Empty Bin") #action is needed to check if u want to empty the whole thing or not
