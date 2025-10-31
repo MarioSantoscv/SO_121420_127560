@@ -284,7 +284,14 @@ function list_recycled(){
         IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
         # Use full UUID for lookup, not just the short
-        recycle_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
+        recycle_path=""
+        for f in "$FILES_DIR"/"${name}"_*; do
+            f_id="${f##*/${name}_}"
+            if [[ "$f_id" == "$id"* ]]; then
+                recycle_path="$f"
+                break
+            fi
+        done
 
         # only include items that currently exist in the recycle bin
         [ -e "$recycle_path" ] || continue
@@ -419,7 +426,15 @@ function restore_file() {
         orig_path="$(trim "$orig_path")"
         base_name="$(trim "$(basename "$orig_path")")"
 
-        recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
+        # Find the recycle_path robustly (short or full UUID)
+        recycle_path=""
+        for f in "$FILES_DIR"/"${name}"_*; do
+            f_id="${f##*/${name}_}"
+            if [[ "$f_id" == "$id"* ]]; then
+                recycle_path="$f"
+                break
+            fi
+        done
 
         [ -z "$id" ] && continue
         [ -z "$recycle_path" ] && continue
@@ -456,7 +471,15 @@ function restore_file() {
                 del_date_fmt="$del_date"
             fi
             size_bytes=0
-            recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
+            # Find the recycle_path robustly (short or full UUID)
+            recycle_path=""
+            for f in "$FILES_DIR"/"${name}"_*; do
+                f_id="${f##*/${name}_}"
+                if [[ "$f_id" == "$id"* ]]; then
+                    recycle_path="$f"
+                    break
+                fi
+            done
             if [ -e "$recycle_path" ]; then
                 if [ -d "$recycle_path" ]; then
                     size_kb=$(du -sk "$recycle_path" 2>/dev/null | cut -f1)
@@ -492,8 +515,16 @@ function restore_file() {
     name="$(trim "$name")"
     orig_path="$(trim "$orig_path")"
     base_name="$(trim "$(basename "$orig_path")")"
-    recycle_path="$(ls "$FILES_DIR"/"${name}_${id}"* 2>/dev/null | head -n 1)"
-
+    
+    # Find the recycle_path robustly (short or full UUID)
+    recycle_path=""
+    for f in "$FILES_DIR"/"${name}"_*; do
+        f_id="${f##*/${name}_}"
+        if [[ "$f_id" == "$id"* ]]; then
+            recycle_path="$f"
+            break
+        fi
+    done
     if [ ! -e "$recycle_path" ]; then
         echo "Recycled item not found at: $recycle_path"
         return 1
@@ -575,6 +606,7 @@ function restore_file() {
     fi
 
     # perform the move
+    
     if mv -- "$recycle_path" "$dest"; then
         echo "Restored: $dest"
         if [ -n "$perms" ]; then
@@ -1283,6 +1315,7 @@ function preview_file() {
 
 
     local file_id="$1"
+    local found=0
     
     
     while IFS= read -r line || [ -n "$line" ]; do
@@ -1298,12 +1331,12 @@ function preview_file() {
             # id|name|orig_path|del_date|size|ftype|perms|owner
             IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
             if [[ "$id" == "$file_id" ]]; then
-                file_path="$(ls $FILES_DIR/${name}_${id}* 2>/dev/null | head -n 1)" #finding the first file that in files dir that matches that name
-                file_id="$id" 
-                # only include items that currently exist in the recycle bin
-                [ -e "$file_path" ] || continue
+                # Find the file in the recycle bin directory: <name>_<full_id>
+                file_path="$FILES_DIR/${name}_${id}"
+                if [ ! -e "$file_path" ]; then
+                    continue
+                fi
         
-
                 # Verificar o tipo de ficheiro (texto ou binário)
                 local file_type=$(file -b --mime-type "$file_path")
 
@@ -1321,8 +1354,14 @@ function preview_file() {
                 else
                 echo "Ficheiro binário — pré-visualização não disponível."
                 fi
+                found=1
+                break
             fi
     done < "$METADATA_LOG"
+    if [ $found -eq 0 ]; then
+        echo "File with ID $file_id not found in recycle bin."
+        return 1
+    fi
     return 0
 }
 
