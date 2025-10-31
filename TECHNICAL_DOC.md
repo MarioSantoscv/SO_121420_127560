@@ -168,7 +168,7 @@ graph TD
     B --> C[Display User-Friendly Message]
     C --> D{Recoverable?}
     D -->|yes| E[Retry or Fallback Action]
-    D -->|no|  F[Abort Operation]
+    D -->|no| F[Abort Operation]
 ```
 
 ## Maintenance
