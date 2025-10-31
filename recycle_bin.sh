@@ -1292,7 +1292,6 @@ function check_quota(){
     fi
 }
 
-
 function preview_file() {
     #preview_file
     #Shows first 10 lines of a text files and displays file type information for binary files
@@ -1303,60 +1302,54 @@ function preview_file() {
     #Example
     #preview 1234596
 
-
     set_recyclebin_vars
-
-    
 
     if [ $# -eq 0 ]; then
         echo "usage: recycle_bin.sh preview <id>"
         return 1
     fi
 
-
     local file_id="$1"
     local found=0
-    
-    
+
     while IFS= read -r line || [ -n "$line" ]; do
-            #skip empty lines
-            [ -z "$line" ] && continue
+        # skip empty lines
+        [ -z "$line" ] && continue
 
-            #skip the header
-            case "$line" in
-                ID* ) continue ;;
-            esac
+        # skip the header
+        case "$line" in
+            ID* ) continue ;;
+        esac
 
-            # expected format from the delete_file function:
-            # id|name|orig_path|del_date|size|ftype|perms|owner
-            IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
-            if [[ "$id" == "$file_id" ]]; then
-                # Find the file in the recycle bin directory: <name>_<full_id>
-                file_path="$FILES_DIR/${name}_${id}"
-                if [ ! -e "$file_path" ]; then
-                    continue
-                fi
-        
-                # Verificar o tipo de ficheiro (texto ou binário)
-                local file_type=$(file -b --mime-type "$file_path")
+        # expected format: id|name|orig_path|del_date|size|ftype|perms|owner
+        IFS='|' read -r id name orig_path del_date size ftype perms owner <<< "$line"
 
-                echo "-----------------------------------"
-                echo "Pré-visualização do ficheiro: $file_id"
-                echo "Tipo: $file_type"
-                echo "-----------------------------------"
+       
+        if [[ "$id" == "$file_id"* ]]; then
+           
+            file_path="$FILES_DIR/${name}_${id}"
+            if [ ! -e "$file_path" ]; then
+                continue
+            fi
 
-                # Se for texto, mostrar as 10 primeiras linhas
-                if [[ "$file_type" == text/* ]]; then
+            local file_type=$(file -b --mime-type "$file_path")
+
+            echo "-----------------------------------"
+            echo "Pré-visualização do ficheiro: $file_id"
+            echo "Tipo: $file_type"
+            echo "-----------------------------------"
+
+            if [[ "$file_type" == text/* ]]; then
                 echo "Primeiras 10 linhas:"
                 echo "-----------------------------------"
                 head -n 10 "$file_path"
                 echo "-----------------------------------"
-                else
+            else
                 echo "Ficheiro binário — pré-visualização não disponível."
-                fi
-                found=1
-                break
             fi
+            found=1
+            break
+        fi
     done < "$METADATA_LOG"
     if [ $found -eq 0 ]; then
         echo "File with ID $file_id not found in recycle bin."
