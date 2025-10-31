@@ -54,8 +54,8 @@ Each deleted fill has a corresponding entry in the **metadata.db (CSV format)**:
 
 ### Extended Properties
 - Version: Schema version 1.0
-- Owner: Data owner
-- Access Level: Security classification
+- Owner: File cretor or user who deleted it
+- Access Level: Local user only
 
 ## Key Functions
 ### Function: delete_file()
@@ -198,3 +198,4 @@ graph TD
 **- Support contacts**
     - Kelvin Loforte - <kelvin.loforte@ua.pt>
     - Mario Santos - <mariosantos1@ua.pt>
+
