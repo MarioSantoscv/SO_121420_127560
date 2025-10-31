@@ -53,7 +53,7 @@ Each deleted fill has a corresponding entry in the **metadata.db (CSV format)**:
 - OWNER: file owner and group
 
 ### Extended Properties
-- Version: Schema version
+- Version: Schema version 1.0
 - Owner: Data owner
 - Access Level: Security classification
 
@@ -167,8 +167,8 @@ graph TD
     A[Error Detected] --> B[Log Error to recycle_bin.log]
     B --> C[Display User-Friendly Message]
     C --> D{Recoverable?}
-    D -->|YES| E[Retry or Fallback Action]
-    D -->|NO|  F[Abort Operation]
+    D -->|yes| E[Retry or Fallback Action]
+    D -->|no|  F[Abort Operation]
 ```
 
 ## Maintenance
