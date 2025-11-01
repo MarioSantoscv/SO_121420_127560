@@ -1,10 +1,9 @@
 #!/bin/bash
 
-#ls ~/.recycle_bin/files
-#cat ~/.recycle_bin/metadata.log
-#in the readme explain what all of the metadad bits are 
 
-#helper function for human readable bytes
+
+
+
 
 #################################################
 # Script Header Comment
