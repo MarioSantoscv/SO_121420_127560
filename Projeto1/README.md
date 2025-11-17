@@ -210,9 +210,9 @@ Edit this file to change limits: (use this nano ~/.recycle_bin/config)
 ---
 
 ## Known Issues
-- Cannot handle link restoration.
+- Cannot handle link resotoration.
 - Cannot delelte files with a name that is over 255 letters.
-
+- Restore fails when original directory is read-only — file not restored and error message displayed. 
 
 ## References
 
