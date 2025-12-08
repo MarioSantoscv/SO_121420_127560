@@ -1,13 +1,16 @@
 #ifndef MASTER_H
 #define MASTER_H
 
-#include "thread_pool.h"
+#include "shared_mem.h"
+#include "semaphores.h"
+#include "config.h"
 
-/* Start the master (acceptor) loop.
-   - port: port number as string (e.g. "8080")
-   - q: initialized connection queue
-   Returns 0 on clean shutdown, non-zero on error.
-*/
-int master_run(const char *port, connection_queue_t *q, int max_clients);
+// From master.c:
+int create_server_socket(int port);
 
-#endif /* MASTER_H */
+void run_master(int listen_fd,
+                shared_data_t* shared,
+                semaphores_t* sems,
+                const server_config_t* config);
+
+#endif
