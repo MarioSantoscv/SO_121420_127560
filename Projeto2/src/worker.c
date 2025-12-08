@@ -4,6 +4,7 @@
 #include "semaphores.h"
 #include "config.h"
 #include "thread_pool.h"
+#include "stats.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -39,7 +40,9 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
  * IMPORTANT: we only send the response here; the socket is
  * closed in thread_pool.c after handle_client() returns.
  */
-void handle_client(int client_fd) {
+void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
+
+    stats_increment_active(shared, sems); // Increment active connections (replace NULLs with actual pointers if needed)
     const char msg[] =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 13\r\n"
@@ -48,14 +51,25 @@ void handle_client(int client_fd) {
         "\r\n"
         "Hello, world!";
 
-    // ignore send errors for now – focus on queue + pool
-    send(client_fd, msg, sizeof(msg) - 1, 0);
+    ssize_t bytes_sent = send(client_fd, msg, sizeof(msg) - 1, 0);
+        if (bytes_sent == -1) {
+            perror("send");
+        }
+    stats_record_response(shared, sems, 200, bytes_sent); // Record response stats
+
+    stats_decrement_active(shared, sems); // Decrement active connections
 }
 
+shared_data_t* g_shared;
+semaphores_t* g_sems;
 
 void run_worker_process(shared_data_t* shared,
                         semaphores_t* sems,
                         const server_config_t* config) {
+    // Expose shared memory and semaphores as globals for handlers
+    g_shared = shared;
+    g_sems = sems;
+
     //Create the thread pool get the number from config
     thread_pool_t* pool = create_thread_pool(config->threads_per_worker);
     if (!pool) {
@@ -66,8 +80,7 @@ void run_worker_process(shared_data_t* shared,
     // get connection fds from the shared circular buffer and work on it on the local pool
     while (1) {
         int client_fd = dequeue_connection(shared, sems);
-        thread_addFd(pool, client_fd);
-        
+        thread_pool_add_work(pool, client_fd); // changed name for clarity
     }
 
    //cleanup

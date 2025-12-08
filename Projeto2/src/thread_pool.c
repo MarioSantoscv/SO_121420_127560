@@ -4,15 +4,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-// Simple work item structure (from your thread_pool.h)
-typedef struct work_item {
-    int client_fd;
-    struct work_item* next;
-} work_item_t;
-
-
-
-
 void* worker_thread(void* arg) {
     thread_pool_t* pool = (thread_pool_t*)arg;
 
@@ -51,15 +42,15 @@ void* worker_thread(void* arg) {
                    (unsigned long)pthread_self(), client_fd);
             free(item);
 
-            // Call handler from worker.c
-            extern void handle_client(int client_fd);
-            handle_client(client_fd);
+            extern void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems);
+            extern shared_data_t* g_shared;
+            extern semaphores_t* g_sems;
+            handle_client(client_fd, g_shared, g_sems);
             close(client_fd);
         }
     }
     return NULL;
 }
-
 
 
 thread_pool_t* create_thread_pool(int num_threads) {
@@ -129,9 +120,7 @@ void thread_addFd(thread_pool_t* pool, int client_fd) {
     pthread_mutex_unlock(&pool->mutex); //exiting critical region
 }
 
-// ---------------------------------------------------------
-// Destroy thread pool (shutdown + join + cleanup)
-// ---------------------------------------------------------
+
 void destroy_thread_pool(thread_pool_t* pool) {
     if (!pool){
         fprintf(stderr, "[THREAD_POOL] Error: pool is NULL\n");
