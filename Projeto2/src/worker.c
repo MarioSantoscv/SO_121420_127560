@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <string.h>
 #include <sys/socket.h>
 
@@ -23,6 +25,22 @@ shared_data_t* g_shared;
 semaphores_t* g_sems;
 file_cache_t* g_cache;
 
+
+// added for debugging (copilot made)
+static void get_client_ip(int client_fd, char* ip_buf, size_t buflen) {
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    if (getpeername(client_fd, (struct sockaddr*)&addr, &addr_len) == 0) {
+        inet_ntop(AF_INET, &addr.sin_addr, ip_buf, buflen);
+    } else {
+        strncpy(ip_buf, "127.0.0.1", buflen);
+    }
+}
+
+//Helper to format the request line for logging
+static void get_request(const http_request_t* req, char* line, size_t len) {
+    snprintf(line, len, "%s %s %s", req->method, req->path, req->version);
+}
 
 // CONSUMER: gets a client_fd from the shared circular buffer
 static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
@@ -44,18 +62,11 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
 }
 
 
-//ignore for now 
-/*
- * Per-connection handler.
- * This is what the thread pool calls for each client_fd.
- * IMPORTANT: we only send the response here; the socket is
- * closed in thread_pool.c after handle_client() returns.
- */
+
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     stats_increment_active(shared, sems);
 
     char buffer[2048] = {0}; //set a 2KB buffer to read the request
-
 
     ssize_t rlen = recv(client_fd, buffer, sizeof(buffer)-1, 0);
     //error or connection closed by client
@@ -71,6 +82,11 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         send_http_response(client_fd, 400, "Bad Request", "text/plain",
                           err_msg, strlen(err_msg)); //send a 400 bad request if parser returns -1
         stats_record_response(shared, sems, 400, strlen(err_msg)); //increment stats
+       
+        char client_ip[64] = {0};
+        get_client_ip(client_fd, client_ip, sizeof(client_ip)); // log the IP even for bad requests
+        log_request(sems->log_mutex, client_ip, "GET", "-", 400, strlen(err_msg));
+        
         stats_decrement_active(shared, sems);
         return;
     }
@@ -80,6 +96,11 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         send_http_response(client_fd, 405, "Method Not Allowed", "text/plain",
                           err_msg, strlen(err_msg)); //send a 405 method not allowed if not GET
         stats_record_response(shared, sems, 405, strlen(err_msg));
+      
+        char client_ip[64] = {0};
+        get_client_ip(client_fd, client_ip, sizeof(client_ip));
+        log_request(sems->log_mutex, client_ip, req.method, req.path, 405, strlen(err_msg));
+       
         stats_decrement_active(shared, sems);
         return;
     }
@@ -90,6 +111,11 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         send_http_response(client_fd, 403, "Forbidden", "text/plain",
                           err_msg, strlen(err_msg));
         stats_record_response(shared, sems, 403, strlen(err_msg));
+       
+        char client_ip[64] = {0};
+        get_client_ip(client_fd, client_ip, sizeof(client_ip));
+        log_request(sems->log_mutex, client_ip, req.method, req.path, 403, strlen(err_msg));
+       
         stats_decrement_active(shared, sems);
         return;
     }
@@ -107,11 +133,21 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         send_http_response(client_fd, 200, "OK", "application/octet-stream", //file is found so we send a 200 OK
                            (const char*)file_data, file_size);
         stats_record_response(shared, sems, 200, file_size);
+        
+        char client_ip[64] = {0};
+        get_client_ip(client_fd, client_ip, sizeof(client_ip));
+        log_request(sems->log_mutex, client_ip, req.method, req.path, 200, file_size);
+        
         free(file_data);
     } else {
         const char msg[] = "404 Not Found (file not in cache)\n";
         send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
         stats_record_response(shared, sems, 404, strlen(msg));
+        
+        char client_ip[64] = {0};
+        get_client_ip(client_fd, client_ip, sizeof(client_ip));
+        log_request(sems->log_mutex, client_ip, req.method, req.path, 404, strlen(msg));
+        
     }
 
     stats_decrement_active(shared, sems);
