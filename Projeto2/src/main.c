@@ -19,8 +19,8 @@
 int main() {
     server_config_t config;
 
-    if (load_server_config("server.conf", &config) != 0) {
-        perror("load_server_config");
+    if (load_server_config("config.cfg", &config) != 0) {
+        perror("FILE DOESNT EXISTTT");//spent ten minutes debugging this typo :)))
         exit(1);
     }
 
