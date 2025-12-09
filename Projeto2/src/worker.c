@@ -5,6 +5,9 @@
 #include "config.h"
 #include "thread_pool.h"
 #include "stats.h"
+#include "cache.h"
+#include "http.h"
+
 
 #include <stdio.h>
 #include <unistd.h>
@@ -12,6 +15,14 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/socket.h>
+
+
+
+//all the global variables
+shared_data_t* g_shared;
+semaphores_t* g_sems;
+file_cache_t* g_cache;
+
 
 // CONSUMER: gets a client_fd from the shared circular buffer
 static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
@@ -41,37 +52,96 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
  * closed in thread_pool.c after handle_client() returns.
  */
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
+    stats_increment_active(shared, sems);
 
-    stats_increment_active(shared, sems); // Increment active connections (replace NULLs with actual pointers if needed)
-    const char msg[] =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Length: 13\r\n"
-        "Content-Type: text/plain\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "Hello, world!";
+    char buffer[2048] = {0}; //set a 2KB buffer to read the request
 
-    ssize_t bytes_sent = send(client_fd, msg, sizeof(msg) - 1, 0);
-        if (bytes_sent == -1) {
-            perror("send");
-        }
-    stats_record_response(shared, sems, 200, bytes_sent); // Record response stats
 
-    stats_decrement_active(shared, sems); // Decrement active connections
+    ssize_t rlen = recv(client_fd, buffer, sizeof(buffer)-1, 0);
+    //error or connection closed by client
+    if (rlen <= 0) {
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    http_request_t req;
+    //get request (uses teacher function)
+    if (parse_http_request(buffer, &req) != 0) {
+        const char err_msg[] = "Malformed HTTP request\n";
+        send_http_response(client_fd, 400, "Bad Request", "text/plain",
+                          err_msg, strlen(err_msg)); //send a 400 bad request if parser returns -1
+        stats_record_response(shared, sems, 400, strlen(err_msg)); //increment stats
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    if (strcmp(req.method, "GET") != 0) {
+        const char err_msg[] = "Only GET supported\n";
+        send_http_response(client_fd, 405, "Method Not Allowed", "text/plain",
+                          err_msg, strlen(err_msg)); //send a 405 method not allowed if not GET
+        stats_record_response(shared, sems, 405, strlen(err_msg));
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    //Security: to prevend malformed paths (copilot suggestion)
+    if (strstr(req.path, "..")) {
+        const char err_msg[] = "Forbidden path\n";
+        send_http_response(client_fd, 403, "Forbidden", "text/plain",
+                          err_msg, strlen(err_msg));
+        stats_record_response(shared, sems, 403, strlen(err_msg));
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    //get the file path remove first /
+    char file_path[600];
+    snprintf(file_path, sizeof(file_path), "%s", req.path+1); 
+
+    //get file from the cache
+    size_t file_size = 0;
+    unsigned char* file_data = cache_get(g_cache, file_path, &file_size);
+
+    if (file_data && file_size > 0) { 
+        //application/octet-stream for all types of files
+        send_http_response(client_fd, 200, "OK", "application/octet-stream", //file is found so we send a 200 OK
+                           (const char*)file_data, file_size);
+        stats_record_response(shared, sems, 200, file_size);
+        free(file_data);
+    } else {
+        const char msg[] = "404 Not Found (file not in cache)\n";
+        send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 404, strlen(msg));
+    }
+
+    stats_decrement_active(shared, sems);
 }
 
-shared_data_t* g_shared;
-semaphores_t* g_sems;
+
+
 
 void run_worker_process(shared_data_t* shared,
                         semaphores_t* sems,
                         const server_config_t* config) {
-    // Expose shared memory and semaphores as globals for handlers
+    // Set global pointers for worker threads
     g_shared = shared;
     g_sems = sems;
 
+
+    // Create the file cache
+    size_t cache_bytes = 10 * 1024 * 1024;//default the 10MB if cant read from config
+    if (config->cache_size_mb > 0) cache_bytes = config->cache_size_mb * 1024 * 1024;
+    g_cache = cache_create(cache_bytes);
+    if (!g_cache) {
+        perror("Couldnt create cache");
+        exit(EXIT_FAILURE);
+    }
+
+    //Default number of threads per worker is 4 if config is invalid
     //Create the thread pool get the number from config
-    thread_pool_t* pool = create_thread_pool(config->threads_per_worker);
+    thread_pool_t* pool = create_thread_pool(4);
+    if (config->threads_per_worker > 0) pool = create_thread_pool(config->threads_per_worker);
+    
     if (!pool) {
         perror("Couldnt create thread pool");
         return;
