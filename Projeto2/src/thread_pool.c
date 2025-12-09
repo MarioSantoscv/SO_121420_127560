@@ -43,8 +43,8 @@ void* worker_thread(void* arg) {
             free(item);
 
             extern void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems);
-            extern shared_data_t* g_shared;
-            extern semaphores_t* g_sems;
+            extern shared_data_t* g_shared; // global shared data pointer(idea to use this was from copilot)
+            extern semaphores_t* g_sems; // global semaphores pointer
             handle_client(client_fd, g_shared, g_sems);
             close(client_fd);
         }

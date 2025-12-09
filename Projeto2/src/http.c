@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/socket.h>
+
 
 // Simple HTTP request parser: extracts method, path, version from first line
 int parse_http_request(const char* buffer, http_request_t* req) {

@@ -10,12 +10,17 @@
 #include "master.h"
 #include "worker.h"
 #include "config.h"
+#include "logger.h"
+#include "stats.h"
+#include "cache.h"
+#include "http.h"
+#include "thread_pool.h"
 
 int main() {
     server_config_t config;
 
-    if (load_config("server.conf", &config) != 0) {
-        perror("load_config");
+    if (load_server_config("server.conf", &config) != 0) {
+        perror("load_server_config");
         exit(1);
     }
 

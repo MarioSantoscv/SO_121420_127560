@@ -1,5 +1,7 @@
 #include "stats.h"
-#include <semaphore.h>
+#include "semaphores.h"
+#include "shared_mem.h"
+
 
 
 void stats_increment_active(shared_data_t* shared, semaphores_t* sems) {
@@ -24,6 +26,12 @@ void stats_record_response(shared_data_t* shared, semaphores_t* sems, int status
         shared->stats.status_200++;
     else if (status == 404)
         shared->stats.status_404++;
+    else if (status == 403)
+        shared->stats.status_403++;
+    else if (status == 400)
+        shared->stats.status_400++;
+    else if (status == 405)
+        shared->stats.status_405++;
     else if (status == 500)
         shared->stats.status_500++;
     //if needed to add in the future other codes just add here(ask teacher about this)

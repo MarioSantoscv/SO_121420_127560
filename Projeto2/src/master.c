@@ -2,8 +2,8 @@
 #include "master.h"
 #include "shared_mem.h"
 #include "semaphores.h"
-#include "config.h"
 #include "stats.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,6 +96,9 @@ static void print_stats(const shared_data_t* shared, const semaphores_t* sems) {
     printf("Total requests:      %ld\n", shared->stats.total_requests);
     printf("Bytes transferred:   %ld\n", shared->stats.bytes_transferred);
     printf("HTTP 200 responses:  %ld\n", shared->stats.status_200);
+    printf("HTTP 403 responses:  %ld\n", shared->stats.status_403);
+    printf("HTTP 400 responses:  %ld\n", shared->stats.status_400);
+    printf("HTTP 405 responses:  %ld\n", shared->stats.status_405);
     printf("HTTP 404 responses:  %ld\n", shared->stats.status_404);
     printf("HTTP 500 responses:  %ld\n", shared->stats.status_500);
     printf("Active connections:  %d\n",  shared->stats.active_connections);

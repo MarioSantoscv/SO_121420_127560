@@ -1,0 +1,28 @@
+=== Functional HTTP Server Tests ===
+
+[GET] index.html
+
+[GET] style.css
+
+[GET] app.js
+
+[GET] image.jpg
+
+[HTTP 200] (should be 200)
+000
+
+[HTTP 404] (should be 404)
+000
+
+[HTTP 403] (should be 403)
+000
+
+[Directory index on '/']
+
+[Content-Type] index.html
+
+[Content-Type] style.css
+
+[Content-Type] app.js
+
+[Content-Type] image.jpg

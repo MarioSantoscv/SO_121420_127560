@@ -7,6 +7,7 @@
 #include "stats.h"
 #include "cache.h"
 #include "http.h"
+#include "logger.h"
 
 
 #include <stdio.h>
@@ -37,10 +38,6 @@ static void get_client_ip(int client_fd, char* ip_buf, size_t buflen) {
     }
 }
 
-//Helper to format the request line for logging
-static void get_request(const http_request_t* req, char* line, size_t len) {
-    snprintf(line, len, "%s %s %s", req->method, req->path, req->version);
-}
 
 // CONSUMER: gets a client_fd from the shared circular buffer
 static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
@@ -186,7 +183,7 @@ void run_worker_process(shared_data_t* shared,
     // get connection fds from the shared circular buffer and work on it on the local pool
     while (1) {
         int client_fd = dequeue_connection(shared, sems);
-        thread_pool_add_work(pool, client_fd); // changed name for clarity
+        thread_addFd(pool, client_fd); 
     }
 
    //cleanup
