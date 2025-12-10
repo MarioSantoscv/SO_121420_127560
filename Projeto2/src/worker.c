@@ -9,7 +9,6 @@
 #include "http.h"
 #include "logger.h"
 
-
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -19,8 +18,6 @@
 #include <string.h>
 #include <sys/socket.h>
 
-
-
 //all the global variables
 shared_data_t* g_shared;
 semaphores_t* g_sems;
@@ -28,7 +25,49 @@ file_cache_t* g_cache;
 
 static char g_document_root[256] = {0};
 
+//helper to get file type
+const char* get_mime_type(const char* file_path) {
+    const char* ext = strrchr(file_path, '.');
+    if (!ext) return "application/octet-stream";
+    if (strcasecmp(ext, ".html") == 0) return "text/html";
+    else if (strcasecmp(ext, ".css") == 0) return "text/css";
+    else if (strcasecmp(ext, ".js") == 0) return "application/javascript";
+    else if (strcasecmp(ext, ".json") == 0) return "application/json";
+    else if (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0) return "image/jpeg";
+    else if (strcasecmp(ext, ".png") == 0) return "image/png";
+    else if (strcasecmp(ext, ".gif") == 0) return "image/gif";
+    else if (strcasecmp(ext, ".svg") == 0) return "image/svg+xml";
+    else if (strcasecmp(ext, ".txt") == 0) return "text/plain";
+    else if (strcasecmp(ext, ".ico") == 0) return "image/x-icon";
+    return "application/octet-stream";
+}
 
+// Helper to send a custom HTML error page if available, fallback to plain text if not
+void send_custom_error_page(int client_fd, int status, const char* status_msg,
+                            const char* document_root, const char* error_filename,
+                            const char* fallback_msg, shared_data_t *shared, semaphores_t *sems) {
+    char error_file_path[512];
+    snprintf(error_file_path, sizeof(error_file_path), "%s/errors/%s", document_root, error_filename);
+    FILE* fp = fopen(error_file_path, "rb");
+    if (fp) {
+        fseek(fp, 0, SEEK_END);
+        size_t sz = (size_t)ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        char *contents = malloc(sz);
+        if (contents && fread(contents, 1, sz, fp) == sz) {
+            send_http_response(client_fd, status, status_msg, "text/html", contents, sz);
+            stats_record_response(shared, sems, status, sz);
+            free(contents);
+            fclose(fp);
+            return;
+        }
+        if (contents) free(contents);
+        fclose(fp);
+    }
+    // Fallback: plain text error message
+    send_http_response(client_fd, status, status_msg, "text/plain", fallback_msg, strlen(fallback_msg));
+    stats_record_response(shared, sems, status, strlen(fallback_msg));
+}
 
 // CONSUMER: gets a client_fd from the shared circular buffer
 static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
@@ -48,8 +87,6 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
 
     return client_fd;
 }
-
-
 
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     // --- Load document root from config (once) ---
@@ -92,28 +129,36 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     http_request_t req;
     if (parse_http_request(buffer, &req) != 0) {
         printf("[DEBUG] parse_http_request FAILED\n");
-        const char err_msg[] = "Malformed HTTP request\n";
-        send_http_response(client_fd, 400, "Bad Request", "text/plain", err_msg, strlen(err_msg));
-        stats_record_response(shared, sems, 400, strlen(err_msg));
+        send_custom_error_page(client_fd, 400, "Bad Request", document_root, "error400.html", "400 Bad Request\n", shared, sems);
         stats_decrement_active(shared, sems);
         return;
     }
     printf("[DEBUG] Parsed request: method=%s path=%s version=%s\n", req.method, req.path, req.version);
 
-    // --- Only support GET ---
-    if (strcmp(req.method, "GET") != 0) {
-        const char err_msg[] = "Only GET supported\n";
-        send_http_response(client_fd, 405, "Method Not Allowed", "text/plain", err_msg, strlen(err_msg));
-        stats_record_response(shared, sems, 405, strlen(err_msg));
+    // --- Only support GET and HEAD ---
+    int is_head = 0;
+    if (strcmp(req.method, "GET") == 0) {
+        is_head = 0;
+    } else if (strcmp(req.method, "HEAD") == 0) {
+        is_head = 1;
+    } else {
+        send_custom_error_page(client_fd, 405, "Method Not Allowed", document_root, "error405.html", "405 Method Not Allowed\n", shared, sems);
         stats_decrement_active(shared, sems);
         return;
     }
 
     // --- Prevent directory traversal ---
     if (strstr(req.path, "..")) {
-        const char err_msg[] = "Forbidden path\n";
-        send_http_response(client_fd, 403, "Forbidden", "text/plain", err_msg, strlen(err_msg));
-        stats_record_response(shared, sems, 403, strlen(err_msg));
+        send_custom_error_page(client_fd, 403, "Forbidden", document_root, "error403.html", "403 Forbidden\n", shared, sems);
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    // --- Special URL to trigger 500 error for testing purposes ---
+    // This allows you to verify 500 error handling from your test script.
+    if (strcmp(req.path, "/trigger_500") == 0) {
+        printf("[DEBUG] Triggered 500 Internal Server Error for testing\n");
+        send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
         stats_decrement_active(shared, sems);
         return;
     }
@@ -129,31 +174,28 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     // Truncation check
     if (strlen(file_path) >= sizeof(file_path)) {
         printf("[DEBUG] Path too long, aborting\n");
-        const char msg[] = "404 Not Found\n";
-        send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 404, strlen(msg));
+        send_custom_error_page(client_fd, 404, "Not Found", document_root, "error404.html", "404 Not Found\n", shared, sems);
         stats_decrement_active(shared, sems);
         return;
     }
     printf("[DEBUG] Full file path: %s\n", file_path);
 
+    // --- Check file permissions (403 if unreadable) ---
+    if (access(file_path, R_OK) != 0) {
+        // File exists but is not readable
+        if (access(file_path, F_OK) == 0) {
+            printf("[DEBUG] File not readable: %s\n", file_path);
+            send_custom_error_page(client_fd, 403, "Forbidden", document_root, "error403.html", "403 Forbidden\n", shared, sems);
+            stats_decrement_active(shared, sems);
+            return;
+        }
+    }
+
     // --- Try to open and read file ---
     FILE* fp = fopen(file_path, "rb");
     if (!fp) {
         printf("[DEBUG] File not found: %s\n", file_path);
-        const char msg[] = "404 Not Found\n";
-        send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 404, strlen(msg));
-        stats_decrement_active(shared, sems);
-        return;
-    }
-    // Check file permissions (403 if unreadable)
-    if (access(file_path, R_OK) != 0) {
-        printf("[DEBUG] File not readable: %s\n", file_path);
-        const char msg[] = "403 Forbidden\n";
-        send_http_response(client_fd, 403, "Forbidden", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 403, strlen(msg));
-        fclose(fp);
+        send_custom_error_page(client_fd, 404, "Not Found", document_root, "error404.html", "404 Not Found\n", shared, sems);
         stats_decrement_active(shared, sems);
         return;
     }
@@ -165,56 +207,50 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
 
     if (sz == 0 || sz > 16 * 1024 * 1024) { // arbitrary cap for demo
         printf("[DEBUG] File too large or error: %zu\n", sz);
-        const char msg[] = "500 Internal Error\n";
-        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 500, strlen(msg));
+        send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
         fclose(fp);
         stats_decrement_active(shared, sems);
         return;
     }
 
-    char *contents = malloc(sz);
-    if (!contents) {
-        printf("[DEBUG] Out of memory reading file\n");
-        const char msg[] = "500 Internal Error\n";
-        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 500, strlen(msg));
-        fclose(fp);
-        stats_decrement_active(shared, sems);
-        return;
+    char *contents = NULL;
+    if (!is_head) {
+        contents = malloc(sz);
+        if (!contents) {
+            printf("[DEBUG] Out of memory reading file\n");
+            send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
+            fclose(fp);
+            stats_decrement_active(shared, sems);
+            return;
+        }
+        size_t got = fread(contents, 1, sz, fp);
+        if (got != sz) {
+            printf("[DEBUG] fread failed: read %zu bytes, expected %zu\n", got, sz);
+            send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
+            free(contents);
+            fclose(fp);
+            stats_decrement_active(shared, sems);
+            return;
+        }
     }
-    size_t got = fread(contents, 1, sz, fp);
     fclose(fp);
 
-    if (got != sz) {
-        printf("[DEBUG] fread failed: read %zu bytes, expected %zu\n", got, sz);
-        const char msg[] = "500 Internal Error\n";
-        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
-        stats_record_response(shared, sems, 500, strlen(msg));
+    // Determine MIME type using helper
+    const char* mime = get_mime_type(file_path);
+
+    // --- Now pass the correct MIME type in the 200 OK response! ---
+    if (is_head) {
+        send_http_response(client_fd, 200, "OK", mime, NULL, sz); // body=NULL, length is still needed for Content-Length
+        stats_record_response(shared, sems, 200, sz);
+    } else {
+        send_http_response(client_fd, 200, "OK", mime, contents, sz);
+        stats_record_response(shared, sems, 200, sz);
         free(contents);
-        stats_decrement_active(shared, sems);
-        return;
     }
-
-    // Determine MIME type (improve as needed)
-    const char* mime = "text/html";
-    const char* ext = strrchr(file_path, '.');
-    if (ext && strcasecmp(ext, ".html") == 0) mime = "text/html";
-    else if (ext && strcasecmp(ext, ".css") == 0) mime = "text/css";
-    else if (ext && strcasecmp(ext, ".js") == 0) mime = "application/javascript";
-    else if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) mime = "image/jpeg";
-    else if (ext && strcasecmp(ext, ".png") == 0) mime = "image/png";
-    else if (ext && strcasecmp(ext, ".txt") == 0) mime = "text/plain";
-
-    send_http_response(client_fd, 200, "OK", mime, contents, sz);
-    stats_record_response(shared, sems, 200, sz);
-    free(contents);
 
     stats_decrement_active(shared, sems);
     printf("[DEBUG] Response sent, connection fd closed\n");
 }
-
-
 
 void run_worker_process(int listen_fd,
                         shared_data_t* shared,
@@ -238,7 +274,7 @@ void run_worker_process(int listen_fd,
     // Create thread pool
     int nthreads = (config->threads_per_worker > 0) ? config->threads_per_worker : 10;
     thread_pool_t* pool = create_thread_pool(nthreads);
-    
+
     if (!pool) {
         perror("Couldnt create thread pool");
         return;

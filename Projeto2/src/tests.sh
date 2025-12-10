@@ -1,22 +1,20 @@
 #!/bin/bash
-# tests.sh - Simple HTTP server GET test for HTML file
+# tests_content_type_custom.sh - Testa Content-Type para os ficheiros principais do teu projeto
 
 SERVER_URL="http://localhost:8080"
-DOCROOT="/home/mario/Desktop/SO_121420_127560/Projeto2/www"
-LOG="test_html_get.log"
+FILES=("index.html" "style.css" "script.js" "homempau.png")
+EXPECTED=("text/html" "text/css" "application/javascript" "image/png")
 
-echo "=== HTML GET Test ===" | tee "$LOG"
-
-HTML_FILE="index.html"
-
-echo -e "\n[GET] /$HTML_FILE" | tee -a "$LOG"
-curl -sv "$SERVER_URL/$HTML_FILE" -o /dev/null 2>&1 | tee -a "$LOG"
-
-echo -e "\n[Content-Type] /$HTML_FILE" | tee -a "$LOG"
-curl -sI "$SERVER_URL/$HTML_FILE" | grep -i "Content-Type" | tee -a "$LOG"
-
-echo -e "\n[HTTP Status] /$HTML_FILE" | tee -a "$LOG"
-curl -s -o /dev/null -w "HTTP %{http_code}\n" "$SERVER_URL/$HTML_FILE" | tee -a "$LOG"
-
-echo -e "\n=== Test Complete ===" | tee -a "$LOG"
-echo "Check $LOG for GET response, Content-Type header, and status code."
+for i in "${!FILES[@]}"; do
+    FILE=${FILES[$i]}
+    EXPECTED_TYPE=${EXPECTED[$i]}
+    echo "---------------------------------------"
+    echo "File: $FILE   (Esperado: $EXPECTED_TYPE)"
+    CONTENT_TYPE=$(curl -s -D - "$SERVER_URL/$FILE" -o /dev/null | grep -i "^Content-Type:" | awk '{print $2}' | tr -d '\r')
+    if [[ "$CONTENT_TYPE" == "$EXPECTED_TYPE" ]]; then
+        echo -e "✅ Content-Type correto: $CONTENT_TYPE"
+    else
+        echo -e "❌ Content-Type errado: $CONTENT_TYPE (esperado: $EXPECTED_TYPE)"
+    fi
+done
+echo "---------------------------------------"
