@@ -1,0 +1,31 @@
+=== HTML GET Test ===
+
+[GET] /index.html
+* Host localhost:8080 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+*   Trying [::1]:8080...
+* connect to ::1 port 8080 from ::1 port 37380 failed: Connection refused
+*   Trying 127.0.0.1:8080...
+* Connected to localhost (127.0.0.1) port 8080
+> GET /index.html HTTP/1.1
+> Host: localhost:8080
+> User-Agent: curl/8.5.0
+> Accept: */*
+> 
+< HTTP/1.1 200 OK
+< Content-Type: text/html
+< Content-Length: 166
+< Server: ConcurrentHTTP/1.0
+< Connection: close
+< 
+{ [166 bytes data]
+* Closing connection
+
+[Content-Type] /index.html
+Content-Type: text/plain
+
+[HTTP Status] /index.html
+HTTP 200
+
+=== Test Complete ===

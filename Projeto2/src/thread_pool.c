@@ -40,13 +40,17 @@ void* worker_thread(void* arg) {
             int client_fd = item->client_fd;
             printf("[THREAD_POOL] thread %lu handling client_fd=%d\n",
                    (unsigned long)pthread_self(), client_fd);
-            free(item);
 
             extern void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems);
             extern shared_data_t* g_shared; // global shared data pointer(idea to use this was from copilot)
             extern semaphores_t* g_sems; // global semaphores pointer
             handle_client(client_fd, g_shared, g_sems);
-            close(client_fd);
+
+            close(client_fd); // Only close here after handle_client is finished
+            printf("[THREAD_POOL] thread %lu closed client_fd=%d\n",
+                   (unsigned long)pthread_self(), client_fd);
+
+            free(item);
         }
     }
     return NULL;

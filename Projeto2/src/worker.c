@@ -28,29 +28,7 @@ file_cache_t* g_cache;
 
 static char g_document_root[256] = {0};
 
-// added for debugging (copilot made)
-static void get_client_ip(int client_fd, char* ip_buf, size_t buflen) {
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-    if (getpeername(client_fd, (struct sockaddr*)&addr, &addr_len) == 0) {
-        inet_ntop(AF_INET, &addr.sin_addr, ip_buf, buflen);
-    } else {
-        strncpy(ip_buf, "127.0.0.1", buflen);
-    }
-}
 
-//helper to get the type of file
-static const char* get_mime_type(const char* filename) {
-    const char* ext = strrchr(filename, '.');
-    if (!ext) return "application/octet-stream";
-    ext++;
-    if (strcasecmp(ext, "html") == 0) return "text/html";
-    if (strcasecmp(ext, "txt") == 0) return "text/plain";
-    if (strcasecmp(ext, "css") == 0) return "text/css";
-    if (strcasecmp(ext, "js") == 0)  return "application/javascript";
-    if (strcasecmp(ext, "png") == 0) return "image/png";
-    return "application/octet-stream";
-}
 
 // CONSUMER: gets a client_fd from the shared circular buffer
 static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
@@ -74,136 +52,172 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
 
 
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
+    // --- Load document root from config (once) ---
     static char document_root[256] = {0};
     if (document_root[0] == '\0') {
-        // Load from config file's DOCUMENT_ROOT *once* per worker process
         FILE* f = fopen("config.cfg", "r");
         if (f) {
             char line[256];
             while (fgets(line, sizeof(line), f)) {
                 if (strncmp(line, "DOCUMENT_ROOT=", 14) == 0) {
-                    strncpy(document_root, line + 14, sizeof(document_root)-1);
+                    strncpy(document_root, line + 14, sizeof(document_root) - 1);
+                    // strip trailing newline or carriage return if present
                     size_t len = strlen(document_root);
-                    if (len && document_root[len-1] == '\n') document_root[len-1] = '\0';
+                    if (len > 0 && (document_root[len - 1] == '\n' || document_root[len - 1] == '\r')) {
+                        document_root[len - 1] = '\0';
+                    }
                 }
             }
             fclose(f);
         } else {
-            strcpy(document_root, "./www"); // fallback
+            strcpy(document_root, "./www");
         }
     }
 
+    // --- Track active connections ---
     stats_increment_active(shared, sems);
 
+    // --- Read HTTP request ---
     char buffer[2048] = {0};
-
-    ssize_t rlen = recv(client_fd, buffer, sizeof(buffer)-1, 0);
+    ssize_t rlen = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
     if (rlen <= 0) {
+        printf("[DEBUG] recv() failed: rlen=%zd, errno=%d\n", rlen, errno);
         stats_decrement_active(shared, sems);
         return;
     }
+    buffer[rlen] = '\0';
+    printf("[DEBUG] Received %zd bytes: %s\n", rlen, buffer);
 
+    // --- Parse HTTP request ---
     http_request_t req;
     if (parse_http_request(buffer, &req) != 0) {
+        printf("[DEBUG] parse_http_request FAILED\n");
         const char err_msg[] = "Malformed HTTP request\n";
         send_http_response(client_fd, 400, "Bad Request", "text/plain", err_msg, strlen(err_msg));
         stats_record_response(shared, sems, 400, strlen(err_msg));
-        char client_ip[64] = {0};
-        get_client_ip(client_fd, client_ip, sizeof(client_ip));
-        log_request(sems->log_mutex, client_ip, "GET", "-", 400, strlen(err_msg));
         stats_decrement_active(shared, sems);
         return;
     }
+    printf("[DEBUG] Parsed request: method=%s path=%s version=%s\n", req.method, req.path, req.version);
 
+    // --- Only support GET ---
     if (strcmp(req.method, "GET") != 0) {
         const char err_msg[] = "Only GET supported\n";
         send_http_response(client_fd, 405, "Method Not Allowed", "text/plain", err_msg, strlen(err_msg));
         stats_record_response(shared, sems, 405, strlen(err_msg));
-        char client_ip[64] = {0};
-        get_client_ip(client_fd, client_ip, sizeof(client_ip));
-        log_request(sems->log_mutex, client_ip, req.method, req.path, 405, strlen(err_msg));
         stats_decrement_active(shared, sems);
         return;
     }
 
+    // --- Prevent directory traversal ---
     if (strstr(req.path, "..")) {
         const char err_msg[] = "Forbidden path\n";
         send_http_response(client_fd, 403, "Forbidden", "text/plain", err_msg, strlen(err_msg));
         stats_record_response(shared, sems, 403, strlen(err_msg));
-        char client_ip[64] = {0};
-        get_client_ip(client_fd, client_ip, sizeof(client_ip));
-        log_request(sems->log_mutex, client_ip, req.method, req.path, 403, strlen(err_msg));
         stats_decrement_active(shared, sems);
         return;
     }
 
-    // Directory index support
-    char file_path[600];
-    if (strcmp(req.path, "/") == 0 || req.path[strlen(req.path) - 1] == '/') {
-        snprintf(file_path, sizeof(file_path), "%sindex.html", req.path+1);
+    // --- Build file path ---
+    char file_path[1024];
+    // Support directory index
+    if (strcmp(req.path, "/") == 0 || req.path[strlen(req.path)-1] == '/') {
+        snprintf(file_path, sizeof(file_path), "%s%sindex.html", document_root, req.path);
     } else {
-        snprintf(file_path, sizeof(file_path), "%s", req.path+1);
+        snprintf(file_path, sizeof(file_path), "%s/%s", document_root, req.path[0] == '/' ? req.path+1 : req.path);
     }
-
-    size_t file_size = 0;
-    unsigned char* file_data = cache_get(g_cache, file_path, &file_size);
-
-
-    if (!file_data || file_size == 0) {
-        // Try to load from disk
-        char disk_path[1024];
-        snprintf(disk_path, sizeof(disk_path), "%s/%s", document_root, file_path);
-        FILE* fp = fopen(disk_path, "rb");
-        if (fp) {
-            fseek(fp, 0, SEEK_END);
-            long sz = ftell(fp);
-            fseek(fp, 0, SEEK_SET);
-            if (sz > 0 && sz <= MAX_CACHE_FILE_SIZE) {
-                unsigned char* buf = malloc(sz);
-                if (buf && fread(buf, 1, sz, fp) == (size_t)sz) {
-                    cache_put(g_cache, file_path, buf, sz);
-                    file_data = buf;
-                    file_size = sz;
-                } else {
-                    free(buf);
-                }
-            } else if (sz > 0) { // file too big to cache
-                file_data = malloc(sz);
-                if (file_data && fread(file_data, 1, sz, fp) == (size_t)sz) {
-                    file_size = sz;
-                } else {
-                    free(file_data);
-                    file_data = NULL;
-                }
-            }
-            fclose(fp);
-        }
-    }
-
-    if (file_data && file_size > 0) {
-        const char* content_type = get_mime_type(file_path);
-        send_http_response(client_fd, 200, "OK", content_type, (const char*)file_data, file_size);
-        stats_record_response(shared, sems, 200, file_size);
-        char client_ip[64] = {0};
-        get_client_ip(client_fd, client_ip, sizeof(client_ip));
-        log_request(sems->log_mutex, client_ip, req.method, req.path, 200, file_size);
-        free(file_data);
-    } else {
+    // Truncation check
+    if (strlen(file_path) >= sizeof(file_path)) {
+        printf("[DEBUG] Path too long, aborting\n");
         const char msg[] = "404 Not Found\n";
         send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
         stats_record_response(shared, sems, 404, strlen(msg));
-        char client_ip[64] = {0};
-        get_client_ip(client_fd, client_ip, sizeof(client_ip));
-        log_request(sems->log_mutex, client_ip, req.method, req.path, 404, strlen(msg));
+        stats_decrement_active(shared, sems);
+        return;
+    }
+    printf("[DEBUG] Full file path: %s\n", file_path);
+
+    // --- Try to open and read file ---
+    FILE* fp = fopen(file_path, "rb");
+    if (!fp) {
+        printf("[DEBUG] File not found: %s\n", file_path);
+        const char msg[] = "404 Not Found\n";
+        send_http_response(client_fd, 404, "Not Found", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 404, strlen(msg));
+        stats_decrement_active(shared, sems);
+        return;
+    }
+    // Check file permissions (403 if unreadable)
+    if (access(file_path, R_OK) != 0) {
+        printf("[DEBUG] File not readable: %s\n", file_path);
+        const char msg[] = "403 Forbidden\n";
+        send_http_response(client_fd, 403, "Forbidden", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 403, strlen(msg));
+        fclose(fp);
+        stats_decrement_active(shared, sems);
+        return;
     }
 
+    // Get file size
+    fseek(fp, 0, SEEK_END);
+    size_t sz = (size_t)ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (sz == 0 || sz > 16 * 1024 * 1024) { // arbitrary cap for demo
+        printf("[DEBUG] File too large or error: %zu\n", sz);
+        const char msg[] = "500 Internal Error\n";
+        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 500, strlen(msg));
+        fclose(fp);
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    char *contents = malloc(sz);
+    if (!contents) {
+        printf("[DEBUG] Out of memory reading file\n");
+        const char msg[] = "500 Internal Error\n";
+        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 500, strlen(msg));
+        fclose(fp);
+        stats_decrement_active(shared, sems);
+        return;
+    }
+    size_t got = fread(contents, 1, sz, fp);
+    fclose(fp);
+
+    if (got != sz) {
+        printf("[DEBUG] fread failed: read %zu bytes, expected %zu\n", got, sz);
+        const char msg[] = "500 Internal Error\n";
+        send_http_response(client_fd, 500, "Internal Server Error", "text/plain", msg, strlen(msg));
+        stats_record_response(shared, sems, 500, strlen(msg));
+        free(contents);
+        stats_decrement_active(shared, sems);
+        return;
+    }
+
+    // Determine MIME type (improve as needed)
+    const char* mime = "text/html";
+    const char* ext = strrchr(file_path, '.');
+    if (ext && strcasecmp(ext, ".html") == 0) mime = "text/html";
+    else if (ext && strcasecmp(ext, ".css") == 0) mime = "text/css";
+    else if (ext && strcasecmp(ext, ".js") == 0) mime = "application/javascript";
+    else if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) mime = "image/jpeg";
+    else if (ext && strcasecmp(ext, ".png") == 0) mime = "image/png";
+    else if (ext && strcasecmp(ext, ".txt") == 0) mime = "text/plain";
+
+    send_http_response(client_fd, 200, "OK", mime, contents, sz);
+    stats_record_response(shared, sems, 200, sz);
+    free(contents);
+
     stats_decrement_active(shared, sems);
+    printf("[DEBUG] Response sent, connection fd closed\n");
 }
 
 
 
-
-void run_worker_process(shared_data_t* shared,
+void run_worker_process(int listen_fd,
+                        shared_data_t* shared,
                         semaphores_t* sems,
                         const server_config_t* config) {
     // Set global pointers for worker threads
@@ -230,10 +244,17 @@ void run_worker_process(shared_data_t* shared,
         return;
     }
 
-    // get connection fds from the shared circular buffer and work on it on the local pool
+    // In prefork model: accept connections directly on the inherited listen_fd
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
     while (1) {
-        int client_fd = dequeue_connection(shared, sems);
-        thread_addFd(pool, client_fd); 
+        int client_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
+        if (client_fd < 0) {
+            if (errno == EINTR) continue;
+            perror("accept");
+            continue;
+        }
+        thread_addFd(pool, client_fd);
     }
 
    //cleanup

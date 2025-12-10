@@ -49,8 +49,8 @@ int main() {
     for (int i = 0; i < config.num_workers; i++) {
         pid_t pid = fork();
         if (pid == 0) {
-            // Worker process
-            run_worker_process(shared, &sems, &config);
+            // Worker process: use prefork accept on the inherited listen_fd
+            run_worker_process(listen_fd, shared, &sems, &config);
             exit(0);
         }
     }
