@@ -1,4 +1,8 @@
-# Web Server IPC Project - Reference Solution
+# Multi-Threaded Web Server with IPC and Semaphores Projet - Reference Solution
+**Sistems Operativos – TP2**
+A production-grade concurrent HTTP/1.1 web server implementing advanced process and thread
+synchronization using POSIX semaphores, shared memory, and thread pools.n
+
 ## Overview
 This is a complete reference solution for the Web Server Management
 System IPC project. It demonstrates proper implementation of:
@@ -10,28 +14,75 @@ System IPC project. It demonstrates proper implementation of:
 - **Producer-consumer pattern** with bounded buffer
 - **Signal handling** for graceful shutdown
 - **Resource cleanup** (no memory leaks)
+
+This project implements a multi-process, multi-threaded HTTP/1.1 web server that demonstrates:
+• Process Management: Master-worker architecture using fork()
+• Inter-Process Communication: Shared memory and POSIX semaphores
+• Thread Synchronization: Pthread mutexes, condition variables, reader-writer locks
+• Concurrent Request Handling: Thread pools with producer-consumer pattern
+• HTTP Protocol: Full HTTP/1.1 support including GET and HEAD methods
+• Resource Management: Thread-safe LRU file cache and statistics tracking
+
 ## Project Structure
 ```
 webserver-ipc/
-├── server.c # Main manager process
-├── worker.c # Worker process with thread pool
-├── worker.h
-├── shared_mem.c # Shared memory management
-├── shared_mem.h
-├── semaphore_sync.c # Semaphore synchronization
-├── semaphore_sync.h
-├── http_handler.c # HTTP request/response handling
-├── http_handler.h
-├── Makefile # Build system
-├── README.md # This file
-└── www/ # Web root directory
-    ├── index.html # Default page
-    └── test.html # Test page
-└── docs/                   # Documentation
+├── src/                    # Source code
+    ├── main.c              # Program entry point
+    ├── master.c/h          # Master process implementation
+    ├── worker.c/h          # Worker process implementation
+    ├── http.c/h            # HTTP request/response handling
+    ├── thread_pool.c/h     # Thread pool management
+    ├── cache.c/h           # LRU cache implementation
+    ├── logger.c/h          # Thread-safe logging
+    ├── stats.c/h           # Shared statistics
+    └── config.c/h          # Configuration file parser
+├── www/                    # Web root directory
+    ├── index.html          # Default page
+    ├── style.css           # Stylesheets
+    ├── script.js           # JavaScript files
+    ├── images/             # Image assets
+    └── test.html           # Test page
+    └── errors/             # Custom error pages
+        ├── 404.html
+        └── 500.html
+├── tests/                  # Test suite
+    ├── test_load.sh        # Load testing script
+    ├── test_concurrent.c   # Concurrency tests
+    └── README.md           # Test documentation
+├── docs/                   # Documentation
     ├── design.pdf          # Architecture and design
     ├── report.pdf          # Technical report
-    └── user_manual.pdf     # User guide
+    ├── user_manual.pdf     # User guide
+    └── README.md           # Docs documentation hahahaha
+├── Makefile            # Build system
+├── server.conf # Configuration file
+└── README.md               # This file
 ```
+
+## Features
+Core Features
+• Multi-Process Architecture: 1 master + N workers (default: 4)
+• Thread Pools: M threads per worker (default: 10)
+• HTTP/1.1 Support: GET and HEAD methods
+• Status Codes: 200, 404, 403, 500, 503
+• MIME Types: HTML, CSS, JavaScript, images (PNG, JPG), PDF
+• Directory Index: Automatic index.html serving
+• Custom Error Pages: Branded 404 and 500 pages
+
+Synchronization Features
+• POSIX Semaphores: Inter-process synchronization
+• Pthread Mutexes: Thread-level mutual exclusion
+• Condition Variables: Producer-consumer queue signaling
+• Reader-Writer Locks: Thread-safe file cache access
+
+Advanced Features
+• Thread-Safe LRU Cache: 10MB cache per worker with intelligent eviction
+• Apache Combined Log Format: Industry-standard logging
+• Shared Statistics: Real-time request tracking across all workers
+• Configuration File: Flexible server.conf for easy customization
+• Log Rotation: Automatic rotation at 10MB
+• Graceful Shutdown: Proper cleanup on SIGINT/SIGTERM
+
 ## Requirements
 - **OS:** Linux (Ubuntu 20.04+ recommended)
 - **Compiler:** GCC 9.0 or later
@@ -101,7 +152,19 @@ Manager Process (server)
 ├── Worker 2
 │ └── (same structure)
 │
-└── Worker N...
+└── Worker N...(until worker 4)
+
+- Or in a more simplified way:
+Master Process
+├── Accepts TCP connections (port 8080)
+├── Manages shared memory and semaphores
+├── Distributes connections to workers
+└── Monitors server statistics
+Worker Processes (4 workers)
+├── Each maintains a thread pool (10 threads)
+├── Threads process HTTP requests
+├── Thread-safe LRU file cache
+└── Update shared statistics
 ```
 ### IPC Mechanisms
 **Shared Memory:**
@@ -158,7 +221,7 @@ wait
 ab -n 1000 -c 50 http://localhost:8080/
 ```
 ## Monitoring
-The server displays statistics when shut down:
+The server displays statistics when shut down (30):
 ```
 ╔════════════════════════════════════════════════════════╗
 ║ Web Server Statistics ║
