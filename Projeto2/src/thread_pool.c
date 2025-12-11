@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <pthread.h>
+
+static pthread_mutex_t printf_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void* worker_thread(void* arg) {
     thread_pool_t* pool = (thread_pool_t*)arg;
@@ -18,8 +21,11 @@ void* worker_thread(void* arg) {
 
         // If shutdown requested and queue empty: exit
         if (pool->shutdown && pool->head == NULL) {
+            pthread_mutex_lock(&printf_mutex);
             printf("[THREAD_POOL] thread %lu shutting down\n",
                    (unsigned long)pthread_self()); //print for logging
+            pthread_mutex_unlock(&printf_mutex);
+
             pthread_mutex_unlock(&pool->mutex);
             break;
         }
@@ -38,8 +44,11 @@ void* worker_thread(void* arg) {
 
         if (item) {
             int client_fd = item->client_fd;
+
+            pthread_mutex_lock(&printf_mutex);
             printf("[THREAD_POOL] thread %lu handling client_fd=%d\n",
                    (unsigned long)pthread_self(), client_fd);
+            pthread_mutex_unlock(&printf_mutex);
 
             extern void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems);
             extern shared_data_t* g_shared; // global shared data pointer(idea to use this was from copilot)
@@ -47,8 +56,6 @@ void* worker_thread(void* arg) {
             handle_client(client_fd, g_shared, g_sems);
 
             close(client_fd); // Only close here after handle_client is finished
-            printf("[THREAD_POOL] thread %lu closed client_fd=%d\n",
-                   (unsigned long)pthread_self(), client_fd);
 
             free(item);
         }
@@ -56,16 +63,13 @@ void* worker_thread(void* arg) {
     return NULL;
 }
 
-
 thread_pool_t* create_thread_pool(int num_threads) {
     thread_pool_t* pool = malloc(sizeof(thread_pool_t));
     if (!pool) {
-        perror("Couldnt malloc thread_pool");
         return NULL;
     }
     pool->threads = malloc(sizeof(pthread_t) * num_threads);
     if (!pool->threads) {
-        perror("Couldnt malloc threads");
         free(pool);
         return NULL;
     }
@@ -80,26 +84,25 @@ thread_pool_t* create_thread_pool(int num_threads) {
 
     for (int i = 0; i < num_threads; i++) {
         if (pthread_create(&pool->threads[i], NULL, worker_thread, pool) == 0) {
+            pthread_mutex_lock(&printf_mutex);
             printf("[THREAD_POOL] thread %d created (pthread id: %lu)\n",
                    i, (unsigned long)pool->threads[i]);
+            pthread_mutex_unlock(&printf_mutex);
         }
     }
 
     return pool;
 }
 
-
 void thread_addFd(thread_pool_t* pool, int client_fd) {
     //debugging 
     if (!pool) {
-        fprintf(stderr, "[THREAD_POOL] Error: pool is NULL\n");
         close(client_fd);
         return;
     }
 
     work_item_t* item = malloc(sizeof(work_item_t));
     if (!item) {
-        perror("Couldnt malloc work_item");
         close(client_fd);
         return;
     }
@@ -109,7 +112,6 @@ void thread_addFd(thread_pool_t* pool, int client_fd) {
     pthread_mutex_lock(&pool->mutex);
 
     //entering critical region
-
     if (pool->tail == NULL) {
         // Queue was empty
         //so now both head and tail point to the new item because its only one
@@ -119,20 +121,18 @@ void thread_addFd(thread_pool_t* pool, int client_fd) {
         pool->tail->next = item;
         pool->tail = item;
     }
+
+    pthread_mutex_lock(&printf_mutex);
     printf("[THREAD_POOL] Enqueued work item: client_fd=%d\n", client_fd);
+    pthread_mutex_unlock(&printf_mutex);
+
     pthread_cond_signal(&pool->cond); // Wake one sleeping worker
     pthread_mutex_unlock(&pool->mutex); //exiting critical region
 }
 
-
 void destroy_thread_pool(thread_pool_t* pool) {
-    if (!pool){
-        fprintf(stderr, "[THREAD_POOL] Error: pool is NULL\n");
-        return;
-    } 
-
-    printf("[THREAD_POOL] Destroying pool: shutdown and joining threads...\n");
-
+    if (!pool) return;
+    
     pthread_mutex_lock(&pool->mutex); //entered critical region
     pool->shutdown = 1;
     pthread_cond_broadcast(&pool->cond); // Wake all threads
@@ -140,8 +140,10 @@ void destroy_thread_pool(thread_pool_t* pool) {
 
     for (int i = 0; i < pool->num_threads; i++) {
         pthread_join(pool->threads[i], NULL);
+        pthread_mutex_lock(&printf_mutex);
         printf("[THREAD_POOL] Joined worker thread %d (pthread id: %lu)\n",
                i, (unsigned long)pool->threads[i]);
+        pthread_mutex_unlock(&printf_mutex);
     }
 
     // Free work that is in q but not handled yet
@@ -157,5 +159,5 @@ void destroy_thread_pool(thread_pool_t* pool) {
     pthread_cond_destroy(&pool->cond);
     free(pool->threads);
     free(pool); //for memory leaks free all memory alocated
-    printf("[THREAD_POOL] Thread pool destroyed.\n");
+
 }

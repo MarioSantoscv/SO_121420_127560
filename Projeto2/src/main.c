@@ -1,7 +1,6 @@
-// main.c
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <stdlib.h>    
+#include <unistd.h>    
 #include <signal.h>
 #include <sys/wait.h>
 
@@ -23,6 +22,10 @@ int main() {
         perror("FILE DOESNT EXISTTT");//spent ten minutes debugging this typo :)))
         exit(1);
     }
+
+    // Print once to stdout before creating threads/processes (prevents glibc printf buffer race warnings)
+    printf("[INIT] Pre-initialized stdout buffer\n");
+    fflush(stdout);
 
     // 1. Create shared memory
     shared_data_t* shared = create_shared_memory();

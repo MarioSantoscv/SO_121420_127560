@@ -36,7 +36,7 @@ static void cache_set_head(file_cache_t* cache, cache_entry_t* entry) {
         return;
     }
     // Remove from current position
-    if (entry->prev) entry->prev->next = entry->next;  // A B C D
+    if (entry->prev) entry->prev->next = entry->next;  
     if (entry->next) entry->next->prev = entry->prev;
     if (cache->tail == entry && entry->prev)
         cache->tail = entry->prev;

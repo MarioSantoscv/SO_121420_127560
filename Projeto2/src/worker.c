@@ -17,12 +17,14 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <pthread.h>
 
 //all the global variables
 shared_data_t* g_shared;
 semaphores_t* g_sems;
 file_cache_t* g_cache;
 
+static pthread_mutex_t docroot_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_document_root[256] = {0};
 
 //helper to get file type
@@ -89,7 +91,8 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
 }
 
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
-    // --- Load document root from config (once) ---
+    // --- Load document root from config (once) --
+    pthread_mutex_lock(&docroot_mutex);
     static char document_root[256] = {0};
     if (document_root[0] == '\0') {
         FILE* f = fopen("config.cfg", "r");
@@ -110,6 +113,7 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
             strcpy(document_root, "./www");
         }
     }
+    pthread_mutex_unlock(&docroot_mutex);
 
     // --- Track active connections ---
     stats_increment_active(shared, sems);
