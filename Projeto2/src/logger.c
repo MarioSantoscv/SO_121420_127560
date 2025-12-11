@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 
 #define LOG_FILE "access.log"
-#define LOG_MAX_SIZE (5 * 1024 ) // 10MB
+#define LOG_MAX_SIZE (10 * 1024 * 1024) // 10MB
 
 // Helper: rotate log file if exceeds 10MB
 static void rotate_log_file(FILE* fp, struct tm* tm_info) {
