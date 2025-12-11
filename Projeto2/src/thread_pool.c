@@ -5,7 +5,8 @@
 #include <unistd.h>
 #include <pthread.h>
 
-static pthread_mutex_t printf_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Usa o mutex global do worker.c
+extern pthread_mutex_t print_mutex;
 
 void* worker_thread(void* arg) {
     thread_pool_t* pool = (thread_pool_t*)arg;
@@ -21,10 +22,10 @@ void* worker_thread(void* arg) {
 
         // If shutdown requested and queue empty: exit
         if (pool->shutdown && pool->head == NULL) {
-            pthread_mutex_lock(&printf_mutex);
+            pthread_mutex_lock(&print_mutex);
             printf("[THREAD_POOL] thread %lu shutting down\n",
                    (unsigned long)pthread_self()); //print for logging
-            pthread_mutex_unlock(&printf_mutex);
+            pthread_mutex_unlock(&print_mutex);
 
             pthread_mutex_unlock(&pool->mutex);
             break;
@@ -45,10 +46,10 @@ void* worker_thread(void* arg) {
         if (item) {
             int client_fd = item->client_fd;
 
-            pthread_mutex_lock(&printf_mutex);
+            pthread_mutex_lock(&print_mutex);
             printf("[THREAD_POOL] thread %lu handling client_fd=%d\n",
                    (unsigned long)pthread_self(), client_fd);
-            pthread_mutex_unlock(&printf_mutex);
+            pthread_mutex_unlock(&print_mutex);
 
             extern void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems);
             extern shared_data_t* g_shared; // global shared data pointer(idea to use this was from copilot)
@@ -84,10 +85,10 @@ thread_pool_t* create_thread_pool(int num_threads) {
 
     for (int i = 0; i < num_threads; i++) {
         if (pthread_create(&pool->threads[i], NULL, worker_thread, pool) == 0) {
-            pthread_mutex_lock(&printf_mutex);
+            pthread_mutex_lock(&print_mutex);
             printf("[THREAD_POOL] thread %d created (pthread id: %lu)\n",
                    i, (unsigned long)pool->threads[i]);
-            pthread_mutex_unlock(&printf_mutex);
+            pthread_mutex_unlock(&print_mutex);
         }
     }
 
@@ -122,9 +123,9 @@ void thread_addFd(thread_pool_t* pool, int client_fd) {
         pool->tail = item;
     }
 
-    pthread_mutex_lock(&printf_mutex);
+    pthread_mutex_lock(&print_mutex);
     printf("[THREAD_POOL] Enqueued work item: client_fd=%d\n", client_fd);
-    pthread_mutex_unlock(&printf_mutex);
+    pthread_mutex_unlock(&print_mutex);
 
     pthread_cond_signal(&pool->cond); // Wake one sleeping worker
     pthread_mutex_unlock(&pool->mutex); //exiting critical region
@@ -140,10 +141,10 @@ void destroy_thread_pool(thread_pool_t* pool) {
 
     for (int i = 0; i < pool->num_threads; i++) {
         pthread_join(pool->threads[i], NULL);
-        pthread_mutex_lock(&printf_mutex);
+        pthread_mutex_lock(&print_mutex);
         printf("[THREAD_POOL] Joined worker thread %d (pthread id: %lu)\n",
                i, (unsigned long)pool->threads[i]);
-        pthread_mutex_unlock(&printf_mutex);
+        pthread_mutex_unlock(&print_mutex);
     }
 
     // Free work that is in q but not handled yet
