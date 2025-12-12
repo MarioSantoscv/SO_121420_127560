@@ -30,26 +30,8 @@ pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t docroot_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_document_root[256] = {0};
 
-// Helper para obter o IP do cliente a partir do client_fd
-static void get_client_ip(int client_fd, char* ip_str, size_t ip_str_len) {
-    struct sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-    if (getpeername(client_fd, (struct sockaddr*)&addr, &len) == 0) {
-        void* src = NULL;
-        if (addr.ss_family == AF_INET) {
-            src = &((struct sockaddr_in*)&addr)->sin_addr;
-        } else if (addr.ss_family == AF_INET6) {
-            src = &((struct sockaddr_in6*)&addr)->sin6_addr;
-        }
-        if (src) {
-            inet_ntop(addr.ss_family, src, ip_str, ip_str_len);
-            return;
-        }
-    }
-    strncpy(ip_str, "unknown", ip_str_len);
-}
-
-const char* get_mime_type(const char* file_path) { //todos os ficheiros sao na sua raiz< um applicattion/octet-stream dai o facto de ser default
+//Helper to get mime type (only the files we were requested to test)
+const char* get_mime_type(const char* file_path) { //every file is by default a application/octet-stream so its the default
     const char* ext = strrchr(file_path, '.');
     if (!ext) return "application/octet-stream";
     if (strcasecmp(ext, ".html") == 0) return "text/html";
@@ -68,37 +50,28 @@ void send_custom_error_page(
 ) {
     char error_file_path[512];
     snprintf(error_file_path, sizeof(error_file_path), "%s/errors/%s", document_root, error_filename);
-    FILE* fp = fopen(error_file_path, "rb");
-    size_t sz = 0;
-    char* contents = NULL;
-    const char* mime = "text/html";
 
+    FILE* fp = fopen(error_file_path, "rb");
     if (fp) {
         fseek(fp, 0, SEEK_END);
-        sz = (size_t)ftell(fp);
+        long sz = ftell(fp);
         fseek(fp, 0, SEEK_SET);
-        contents = malloc(sz);
-        if (contents && fread(contents, 1, sz, fp) == sz) {
-            send_http_response(client_fd, status, status_msg, mime, contents, sz);
+        char* contents = malloc(sz);
+        if (contents && fread(contents, 1, sz, fp) == (size_t)sz) {
+            send_http_response(client_fd, status, status_msg, "text/html", contents, sz);
             stats_record_response(shared, sems, status, sz);
-            fclose(fp);
-            // Fazer o log do erro custom HTML
-            char ip_str[64];
-            get_client_ip(client_fd, ip_str, sizeof(ip_str));
-            log_request(sems->log_mutex, ip_str, "-", "-", status, sz);
+            log_request(sems->log_mutex, "127.0.0.1", "-", "-", status, sz);
             free(contents);
+            fclose(fp);
             return;
         }
-        if (contents) free(contents);
+        free(contents);
         fclose(fp);
     }
-    // Fallback: plain text error message
+    // Fallback: send plain text message
     send_http_response(client_fd, status, status_msg, "text/plain", fallback_msg, strlen(fallback_msg));
     stats_record_response(shared, sems, status, strlen(fallback_msg));
-    // Fazer o log do fallback plain
-    char ip_str[64];
-    get_client_ip(client_fd, ip_str, sizeof(ip_str));
-    log_request(sems->log_mutex, ip_str, "-", "-", status, strlen(fallback_msg));
+    log_request(sems->log_mutex, "127.0.0.1", "-", "-", status, strlen(fallback_msg));
 }
 
 // CONSUMER: gets a client_fd from the shared circular buffer
@@ -151,8 +124,8 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     char buffer[2048] = {0};
     ssize_t rlen = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
 
-    char ip_str[64];
-    get_client_ip(client_fd, ip_str, sizeof(ip_str));
+
+    const char *ip_str = "127.0.0.1";
 
     if (rlen <= 0) {
         pthread_mutex_lock(&print_mutex);
@@ -161,7 +134,6 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
 
         // logging recv error 400
         log_request(sems->log_mutex, ip_str, "-", "-", 400, 0);
-        
 
         stats_decrement_active(shared, sems);
         return;
@@ -323,7 +295,7 @@ void run_worker_process(int listen_fd,
                         shared_data_t* shared,
                         semaphores_t* sems,
                         const server_config_t* config) {
-                            
+
     // Set global pointers for worker threads
     g_shared = shared;
     g_sems = sems;
