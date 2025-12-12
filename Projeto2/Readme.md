@@ -245,9 +245,7 @@ Active connections:  0
 - Send the user to a special error page
 - Safe code with alot of prints to let the user know about the errors 
 - The server checks for errors at every step (for example: after opening files, reading files, or allocating memory).
-```
 
-```
 ### Learning Outcomes
 By completing this project, you have demonstrated:
 - Understanding of process management and IPC
