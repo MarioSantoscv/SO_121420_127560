@@ -49,13 +49,14 @@ void send_custom_error_page(
     const char* fallback_msg, shared_data_t *shared, semaphores_t *sems
 ) {
     char error_file_path[512];
-    snprintf(error_file_path, sizeof(error_file_path), "%s/errors/%s", document_root, error_filename);
+    snprintf(error_file_path, sizeof(error_file_path), "%s/errors/%s", document_root, error_filename); //to look for the file in the www/errors dir
 
     FILE* fp = fopen(error_file_path, "rb");
     if (fp) {
-        fseek(fp, 0, SEEK_END);
+        fseek(fp, 0, SEEK_END); //go to end of file end get the size logic reused in multiple places
         long sz = ftell(fp);
         fseek(fp, 0, SEEK_SET);
+
         char* contents = malloc(sz);
         if (contents && fread(contents, 1, sz, fp) == (size_t)sz) {
             send_http_response(client_fd, status, status_msg, "text/html", contents, sz);
@@ -68,7 +69,7 @@ void send_custom_error_page(
         free(contents);
         fclose(fp);
     }
-    // Fallback: send plain text message
+    // Fallback: send plain text message(defined in usage of the function)
     send_http_response(client_fd, status, status_msg, "text/plain", fallback_msg, strlen(fallback_msg));
     stats_record_response(shared, sems, status, strlen(fallback_msg));
     log_request(sems->log_mutex, "127.0.0.1", "-", "-", status, strlen(fallback_msg));
