@@ -121,7 +121,7 @@ static int dequeue_connection(shared_data_t* data, semaphores_t* sems) {
 }
 
 void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
-    // --- Load document root from config (once) --
+   
     pthread_mutex_lock(&docroot_mutex);
     static char document_root[256] = {0};
     if (document_root[0] == '\0') {
@@ -129,26 +129,25 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         if (f) {
             char line[256];
             while (fgets(line, sizeof(line), f)) {
-                if (strncmp(line, "DOCUMENT_ROOT=", 14) == 0) {
+                if (strncmp(line, "DOCUMENT_ROOT=", 14) == 0) { // look for the document root line
                     strncpy(document_root, line + 14, sizeof(document_root) - 1);
-                    // strip trailing newline or carriage return if present
                     size_t len = strlen(document_root);
-                    if (len > 0 && (document_root[len - 1] == '\n' || document_root[len - 1] == '\r')) {
-                        document_root[len - 1] = '\0';
+                    if (len > 0 && document_root[len - 1] == '\n'){
+                        document_root[len - 1] = '\0'; //if there is a newline at the end we remove
                     }
                 }
             }
             fclose(f);
         } else {
-            strcpy(document_root, "./www");
+            strcpy(document_root, "./www"); //default document root
         }
     }
-    pthread_mutex_unlock(&docroot_mutex);
+    pthread_mutex_unlock(&docroot_mutex); //solved the race condition
 
-    // --- Track active connections ---
+    
     stats_increment_active(shared, sems);
 
-    // --- Read HTTP request ---
+    
     char buffer[2048] = {0};
     ssize_t rlen = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
 
@@ -160,18 +159,19 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         printf("[DEBUG] recv() failed: rlen=%zd, errno=%d\n", rlen, errno);
         pthread_mutex_unlock(&print_mutex);
 
-        // Log erro de recepção
+        // logging recv error 400
         log_request(sems->log_mutex, ip_str, "-", "-", 400, 0);
+        
 
         stats_decrement_active(shared, sems);
         return;
     }
-    buffer[rlen] = '\0';
+    buffer[rlen] = '\0'; //reset the buffer
     pthread_mutex_lock(&print_mutex);
     printf("[DEBUG] Received %zd bytes: %s\n", rlen, buffer);
     pthread_mutex_unlock(&print_mutex);
 
-    // --- Parse HTTP request ---
+    //parse the http request
     http_request_t req;
     if (parse_http_request(buffer, &req) != 0) {
         pthread_mutex_lock(&print_mutex);
@@ -187,7 +187,7 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     }
     
 
-    // --- Only support GET and HEAD ---
+    //only need to have get and head so we check that
     int is_head = 0;
     if (strcmp(req.method, "GET") == 0) {
         is_head = 0;
@@ -196,83 +196,37 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     } else {
         send_custom_error_page(client_fd, 405, "Method Not Allowed", document_root, "error405.html", "405 Method Not Allowed\n", shared, sems);
 
-        // Log método não permitido
+        // Log method not allowed
         log_request(sems->log_mutex, ip_str, req.method, req.path, 405, 0);
 
         stats_decrement_active(shared, sems);
         return;
     }
 
-    // --- Prevent directory traversal ---
+    // Cant permit directory 
     if (strstr(req.path, "..")) {
         send_custom_error_page(client_fd, 403, "Forbidden", document_root, "error403.html", "403 Forbidden\n", shared, sems);
 
-        // Log forbidden
         log_request(sems->log_mutex, ip_str, req.method, req.path, 403, 0);
 
         stats_decrement_active(shared, sems);
         return;
     }
 
-    // --- Special URL to trigger 500 error for testing purposes ---
-    // This allows you to verify 500 error handling from your test script.
-    if (strcmp(req.path, "/trigger_500") == 0) {
-        pthread_mutex_lock(&print_mutex);
-        printf("[DEBUG] Triggered 500 Internal Server Error for testing\n");
-        pthread_mutex_unlock(&print_mutex);
-
-        send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
-
-        // Log erro interno (trigger handler)
-        log_request(sems->log_mutex, ip_str, req.method, req.path, 500, 0);
-
-        stats_decrement_active(shared, sems);
-        return;
-    }
-
-    // --- Build file path ---
+   
+    // get the file path
     char file_path[1024];
-    // Support directory index
-    if (strcmp(req.path, "/") == 0 || req.path[strlen(req.path)-1] == '/') {
+    // if a dir is requestred we put the index.html requested on test 11
+    if (strcmp(req.path, "/") == 0 || req.path[strlen(req.path)-1] == '/') { //so if a dir like / or /subdir/
         snprintf(file_path, sizeof(file_path), "%s%sindex.html", document_root, req.path);
     } else {
         snprintf(file_path, sizeof(file_path), "%s/%s", document_root, req.path[0] == '/' ? req.path+1 : req.path);
-    }
-    // Truncation check
-    if (strlen(file_path) >= sizeof(file_path)) {
-        pthread_mutex_lock(&print_mutex);
-        printf("[DEBUG] Path too long, aborting\n");
-        pthread_mutex_unlock(&print_mutex);
-        send_custom_error_page(client_fd, 404, "Not Found", document_root, "error404.html", "404 Not Found\n", shared, sems);
-
-        // Log path too long
-        log_request(sems->log_mutex, ip_str, req.method, req.path, 404, 0);
-
-        stats_decrement_active(shared, sems);
-        return;
     }
     pthread_mutex_lock(&print_mutex);
     printf("[DEBUG] Full file path: %s\n", file_path);
     pthread_mutex_unlock(&print_mutex);
 
-    // --- Check file permissions (403 if unreadable) ---
-    if (access(file_path, R_OK) != 0) {
-        // File exists but is not readable
-        if (access(file_path, F_OK) == 0) {
-            pthread_mutex_lock(&print_mutex);
-            printf("[DEBUG] File not readable: %s\n", file_path);
-            pthread_mutex_unlock(&print_mutex);
-            send_custom_error_page(client_fd, 403, "Forbidden", document_root, "error403.html", "403 Forbidden\n", shared, sems);
-
-            // Log forbidden (sem permissão)
-            log_request(sems->log_mutex, ip_str, req.method, req.path, 403, 0);
-
-            stats_decrement_active(shared, sems);
-            return;
-        }
-    }
-
-    // --- Try to open and read file ---
+    
     FILE* fp = fopen(file_path, "rb");
     if (!fp) {
         pthread_mutex_lock(&print_mutex);
@@ -287,18 +241,17 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
         return;
     }
 
-    // Get file size
+    // Get file size for the stats and response
     fseek(fp, 0, SEEK_END);
     size_t sz = (size_t)ftell(fp);
     fseek(fp, 0, SEEK_SET);
 
-    if (sz == 0 || sz > 16 * 1024 * 1024) { // arbitrary cap for demo
+    if (sz == 0) { //if its an empty file 500 error
         pthread_mutex_lock(&print_mutex);
-        printf("[DEBUG] File too large or error: %zu\n", sz);
+        printf("[DEBUG] File is empty: %s\n", file_path);
         pthread_mutex_unlock(&print_mutex);
         send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
 
-        // Log file too large/internal error
         log_request(sems->log_mutex, ip_str, req.method, req.path, 500, 0);
 
         fclose(fp);
@@ -322,6 +275,7 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
             stats_decrement_active(shared, sems);
             return;
         }
+        //a error handling that we found im,portant is if  we dont read the entire file send 500 error
         size_t got = fread(contents, 1, sz, fp);
         if (got != sz) {
             pthread_mutex_lock(&print_mutex);
@@ -329,7 +283,6 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
             pthread_mutex_unlock(&print_mutex);
             send_custom_error_page(client_fd, 500, "Internal Server Error", document_root, "error500.html", "500 Internal Server Error\n", shared, sems);
 
-            // Log erro de leitura/internal error
             log_request(sems->log_mutex, ip_str, req.method, req.path, 500, 0);
 
             free(contents);
@@ -343,18 +296,18 @@ void handle_client(int client_fd, shared_data_t* shared, semaphores_t* sems) {
     // Determine MIME type using helper
     const char* mime = get_mime_type(file_path);
 
-    // --- Now pass the correct MIME type in the 200 OK response! ---
+    //now put it in the response so that the client gets it
     if (is_head) {
-        send_http_response(client_fd, 200, "OK", mime, NULL, sz); // body=NULL, length is still needed for Content-Length
+        send_http_response(client_fd, 200, "OK", mime, NULL, sz); // body=NULL (because its HEAD), length is still needed for Content-Length test 12
         stats_record_response(shared, sems, 200, sz);
 
-        // Log HEAD (no bytes body)
+        // Log HEAD we still log the size even if no body
         log_request(sems->log_mutex, ip_str, req.method, req.path, 200, sz);
     } else {
         send_http_response(client_fd, 200, "OK", mime, contents, sz);
         stats_record_response(shared, sems, 200, sz);
 
-        // Log GET com body
+        // Log GET with body
         log_request(sems->log_mutex, ip_str, req.method, req.path, 200, sz);
 
         free(contents);
@@ -370,11 +323,12 @@ void run_worker_process(int listen_fd,
                         shared_data_t* shared,
                         semaphores_t* sems,
                         const server_config_t* config) {
+                            
     // Set global pointers for worker threads
     g_shared = shared;
     g_sems = sems;
 
-    // Set document root
+    
     strncpy(g_document_root, config->document_root, sizeof(g_document_root)-1);
     // Create the file cache
     size_t cache_bytes = 10 * 1024 * 1024;//default the 10MB if cant read from config
@@ -387,7 +341,7 @@ void run_worker_process(int listen_fd,
         exit(EXIT_FAILURE);
     }
 
-    // Create thread pool
+    // Create thread pool same thing have a default of 10 if it cant read it from config
     int nthreads = (config->threads_per_worker > 0) ? config->threads_per_worker : 10;
     thread_pool_t* pool = create_thread_pool(nthreads);
 
@@ -398,7 +352,7 @@ void run_worker_process(int listen_fd,
         return;
     }
 
-    // In prefork model: accept connections directly on the inherited listen_fd
+    //accepting the fd loop its infinite to wait until it hears a connection
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     while (1) {
