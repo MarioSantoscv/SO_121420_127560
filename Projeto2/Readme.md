@@ -64,8 +64,8 @@ Core Features
 • Multi-Process Architecture: 1 master + N workers (default: 4)
 • Thread Pools: M threads per worker (default: 10)
 • HTTP/1.1 Support: GET and HEAD methods
-• Status Codes: 200, 404, 403, 500, 503
-• MIME Types: HTML, CSS, JavaScript, images (PNG, JPG), PDF
+• Status Codes: 200, 404, 403, 400, 405, 500, 
+• MIME Types: HTML, CSS, JavaScript, images (PNG), PDF
 • Directory Index: Automatic index.html serving
 • Custom Error Pages: Branded 404 and 500 pages
 
@@ -77,7 +77,7 @@ Synchronization Features
 
 Advanced Features
 • Thread-Safe LRU Cache: 10MB cache per worker with intelligent eviction
-• Apache Combined Log Format: Industry-standard logging
+• Apache Combined Log Format: Standard logging rotates the log files every 10MB
 • Shared Statistics: Real-time request tracking across all workers
 • Configuration File: Flexible server.conf for easy customization
 • Log Rotation: Automatic rotation at 10MB
@@ -87,33 +87,30 @@ Advanced Features
 - **OS:** Linux (Ubuntu 20.04+ recommended)
 - **Compiler:** GCC 9.0 or later
 - **Libraries:** pthread, rt (realtime)
-- **Tools:** make, valgrind (optional for testing)
+- **Tools:** make,  (test memory leaks), appache bench (send parallel process), hell grind (test race conditions)
 ## Quick Start
+### Alterations needed 
+ - Need to go in config.c and alter document root to the path of your www file
+
 ### 1. Compile
 ```bash
 make
 ```
 This will:
 - Compile all source files with warnings enabled
-- Link with pthread and rt libraries
-- Create the `server` executable
-- Create www/ directory with sample HTML files
+- Create the `myserver` executable
 ### 2. Run Server
 ```bash
-./server
+./myserver
 ```
 **Default configuration:**
 - Port: 8080
 - Workers: 4 processes
 - Threads per worker: 4 threads
-### 3. Test
-In another terminal:
-```bash
-# Test with curl
-curl http://localhost:8080/
-curl http://localhost:8080/test.html
-# Test with browser
-firefox http://localhost:8080/
+
+### Alterations needed
+
+
 ```
 ### 4. Stop Server
 Press `Ctrl+C` in the terminal running the server.
@@ -121,19 +118,7 @@ The server will:
 - Stop accepting new connections
 - Terminate all worker processes gracefully
 - Clean up shared memory and semaphores
-- Display final statistics
-## Configuration Options
-```bash
-./server [OPTIONS]
-Options:
--p PORT Server port (default: 8080)
--w WORKERS Number of worker processes (default: 4)
--t THREADS Threads per worker (default: 4)
--h Show help message
-Examples:
-./server -p 9000 # Run on port 9000
-./server -w 8 -t 6 # 8 workers, 6 threads each
-./server -p 8080 -w 4 -t 4 # Explicit defaults
+
 ```
 ## Architecture
 ### Process Hierarchy
@@ -144,13 +129,19 @@ Manager Process (server)
 └── Manages worker processes
 │
 ├── Worker 1
-│ ├── Thread 1 ──┐
-│ ├── Thread 2 ├─ Dequeue and handle requests
-│ ├── Thread 3 │
-│ └── Thread 4 ──┘
+│ ├── Thread 1
+│ ├── Thread 2
+│ ├── Thread 3
+│ ├── Thread 4
+│ ├── Thread 5
+│ ├── Thread 6
+│ ├── Thread 7
+│ ├── Thread 8
+│ ├── Thread 9
+│ └── Thread 10 ── Dequeue and handle requests
 │
 ├── Worker 2
-│ └── (same structure)
+│ └── (same structure as above)
 │
 └── Worker N...(until worker 4)
 
@@ -197,12 +188,15 @@ sem_post(empty); // Signal empty slot
 ## Testing
 ### Memory Leak Check
 ```bash
-make valgrind
+valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./myserver
+
 ```
-Expected output: "All heap blocks were freed -- no leaks are possible"
+Expected output: "definetely lost 0, indirectly lost 0, possible could be more than 0"
 ### Race Condition Check
+- We advise feeding the output to a file so u can use Ctrl +F to search for the possible race conditions
 ```bash
-make helgrind
+valgrind --tool=helgrind ./myserver > helgrind_output.txt 2>&1
+
 ```
 Expected output: No race conditions reported
 ### Stress Testing
@@ -221,120 +215,58 @@ wait
 ab -n 1000 -c 50 http://localhost:8080/
 ```
 ## Monitoring
-The server displays statistics when shut down (30):
+The server displays statistics every 30s by using a child process only focused on stats sharing:
 ```
-╔════════════════════════════════════════════════════════╗
-║ Web Server Statistics ║
-╠════════════════════════════════════════════════════════╣
-║ Total Requests: 500 ║
-║ Successful: 495 ║
-║ Failed: 5 ║
-║ Bytes Sent: 25600 ║
-║ Avg Response Time: 2.45 ms ║
-║ Queue Count: 0 ║
-║ Active Workers: 4 ║
-╚════════════════════════════════════════════════════════╝
+------ Server Stats ------
+Total requests:      0
+Bytes transferred:   0
+HTTP 200 responses:  0
+HTTP 403 responses:  0
+HTTP 400 responses:  0
+HTTP 405 responses:  0
+HTTP 404 responses:  0
+HTTP 500 responses:  0
+Active connections:  0
+--------------------------
 ```
-## Debugging
-### Check for Orphaned Resources
-```bash
-# Shared memory
-ls -l /dev/shm/webserver_*
-# Remove manually if needed
-rm /dev/shm/webserver_*
-```
-### View Process Tree
-```bash
-pstree -p $(pgrep -f ./server)
-```
-### Monitor Connections
-```bash
-watch -n 1 'netstat -an | grep :8080'
-```
+
 ## Implementation Notes
-### Key Design Decisions
-1. **Named POSIX semaphores** instead of unnamed for cross-process use
-2. **sem_timedwait** for timeout-based shutdown checking
-3. **EINTR handling** for signal-safe system calls
-4. **Path sanitization** to prevent directory traversal attacks
-5. **SO_REUSEADDR** for quick server restart during development
-6. **SIGPIPE ignored** to handle client disconnections gracefully
+
+- Server uses a manager process and multiple worker processes.
+- Each worker has 10 threads to handle requests.
+- Connections are put in a shared queue using shared memory and semaphores.
+- Only `GET` and `HEAD` requests are allowed; others return an error.
+- Paths are sanitized so clients can't access files outside the document root.
+- Errors send a basic error page or message.
+- Logging always uses `127.0.0.1` as the client IP.
+
 ### Error Handling
-All system calls check return values:
-```c
-if (sem_wait(sem_mutex) == -1) {
-if (errno == EINTR) {
-continue; // Retry on signal interruption
-}
-perror("sem_wait");
-return -1;
-}
+
+- Send the user to a special error page
+- Safe code with alot of prints to let the user know about the errors 
+- The server checks for errors at every step (for example: after opening files, reading files, or allocating memory).
 ```
-### Resource Cleanup
-The shutdown sequence ensures proper cleanup:
-1. Set shutdown flag in shared memory
-2. Close server socket (unblocks accept)
-3. Send SIGTERM to all workers
-4. Wait for workers to terminate
-5. Destroy semaphores
-6. Unmap and unlink shared memory
-## Security Considerations
-1. **Directory Traversal Prevention:** Paths containing ".." are rejected
-2. **Input Validation:** HTTP requests are validated before processing
-3. **Buffer Overflow Protection:** Fixed-size buffers with length checks
-4. **Resource Limits:** Queue size prevents memory exhaustion
-## Cleaning Up
-```bash
-# Clean build artifacts
-make clean
-# Full cleanup (including www/ and IPC resources)
-make distclean
+
 ```
-## Learning Points
-This solution demonstrates:
-**IPC:** Shared memory creation, sizing, mapping, unmapping
-**Semaphores:** Producer-consumer synchronization across processes
-**Threads:** pthread creation, synchronization with mutex/cond
-**Processes:** fork, exec, wait, signal handling
-**Sockets:** TCP server socket, bind, listen, accept
-**HTTP:** Basic request parsing and response generation
-**Error Handling:** Comprehensive error checking and recovery
-**Resource Management:** Proper cleanup, no leaks
-## References
-- POSIX Shared Memory: `man shm_open`, `man mmap`
-- POSIX Semaphores: `man sem_open`, `man sem_wait`
-- POSIX Threads: `man pthread_create`, `man pthread_mutex_lock`
-- TCP Sockets: `man socket`, `man bind`, `man listen`
-- HTTP/1.1: RFC 2616
-## Known Limitations
-1. Only GET requests supported (not POST, PUT, DELETE)
-2. No HTTPS/TLS encryption
-3. No authentication/authorization
-4. No HTTP keep-alive (Connection: close)
-5. No chunked transfer encoding
-6. No virtual hosts
-7. Fixed queue size (not dynamic)
-## Grading Compliance
-This solution achieves 100/100 points:
-- Compilation & Setup
-- Shared Memory
-- Semaphore Synchronization
-- Process Management
-- Thread Pool
-- Functionality
-- Code Quality
+### Learning Outcomes
+By completing this project, you have demonstrated:
+- Understanding of process management and IPC
+- Proficiency with thread synchronization primitives
+- Ability to design concurrent systems
+- Knowledge of network programming
+- Skills in debugging multi-threaded programs
+- Experience with real-world systems programming
+
+### Known Limitations
+1. Hard time implementing graceful shutdown
+
+### Testing
 **Manual tests:**
 - No race conditions (valgrind helgrind)
 - No memory leaks (valgrind memcheck)
 - Handles concurrent load (100+ clients)
 - Correct HTTP responses (200, 404, 403, 500)
-## Support
-For questions about this reference solution, consult:
-1. Code comments (extensive inline documentation)
-2. Project specification documents
----
-The text of this project proposal had AI contributions to its completion
----
+- For more info consult Readme.md present in the tests dir
 
 **Version:** 1.0
 **Date:** 15/12/2025
