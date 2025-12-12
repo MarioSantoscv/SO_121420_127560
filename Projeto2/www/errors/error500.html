@@ -1,4 +1,21 @@
-<html>
-<head><title>500 Internal Server Error</title></head>
-<body><h1>500 Internal Server Error</h1><p>The server encountered an internal error and was unable to complete your request.</p></body>
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset='UTF-8'>
+    <title>500 - Erro Interno do Servidor</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background-color: #ffe0e0; color: #444; }
+        h1 { color: #800000; font-size: 3em; }
+        .details { border: 2px solid #800000; padding: 20px; max-width: 600px; margin: 20px auto; border-radius: 8px; background-color: #ffffff; }
+    </style>
+</head>
+<body>
+    <div class="details">
+        <h1>500 | ERRO INTERNO</h1>
+        <p>Ocorreu um erro inesperado no nosso lado.</p>
+        <p>Isto é, provavelmente, uma falha de software (bug) no **Worker Thread** que estava a processar o seu pedido.</p>
+        <p>Por favor, verifique a consola do servidor e o <code>access.log</code> para detalhes.</p>
+    </div>
+    <small>Concurrent HTTP Server (SO 2025/2026)</small>
+</body>
 </html>
