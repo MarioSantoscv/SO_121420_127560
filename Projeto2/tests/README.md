@@ -17,24 +17,44 @@ Antes de executar qualquer teste, certifique-se de que a build do servidor e do 
 1. Compilar o Servidor e Testes: make all test_concurrent (Isto compila o ./server e o ./tests/test_concurrent.)
 2. Configurar o Ambiente (www/ e config.cfg): make setup
 
+**### Execução Rápida:**
+**Use o target makefile para executar a suite funcional e concorrente de forma automatizada (Inicia o servidor em background, executa a carga e desliga):**
+**`make test`**
+
 ## 2. Teste de Carga e Funcionalidade (test_load.sh)
 O test_load.sh automatiza os testes de alto nível (HTTP). Ele simula o comportamento de navegadores e ferramentas de carga para validar as funcionalidades básicas, o desempenho sob stress, e os mecanismos de encerramento do servidor.
 
-Execução: bash tests/test_load.sh
+Execução Direta: bash tests/test_load.sh
 
 ### Casos de Teste Incluídos:
+**O script testa a conformidade HTTP e o encerramento seguro:**
+* **200 OK e Index Serving:** Testa a requisição da raiz (`/`) e a devolução correta do `index.html`.
+* **404 Not Found:** Testa a resposta para ficheiros inexistentes.
+* **403 Forbidden:** Testa a proteção contra *directory traversal* (tentativa de aceder a `../Makefile`).
+* **Content-Type (MIME):** Valida se o servidor devolve o tipo MIME correto (e.g., `text/css` para `.css`).
+* **Teste de Carga (ab):** Submete o servidor a alta concorrência (10000 requisições / 100 conc.) para verificar *race conditions* no *file serving* e desempenho.
+* **Graceful Shutdown (SIGINT):** Verifica se o servidor principal e os workers terminam de forma segura após receberem `SIGINT`.
+* **Processos Zumbis:** Confirma que o processo Master executa `waitpid()` corretamente, não deixando processos `defunct` (zumbis).
 
 ## 3. Teste de Sincronização de Baixo Nível (test_concurrent)
 Este é um programa C especializado que gera múltiplas threads para abrir e fechar sockets TCP rapidamente. É o método ideal para testar a Fila IPC (Produtor/Consumidor) e a sincronização do Master com os Workers sob grande pressão de conexões.
 
 ### Execução:
 #### Passo 1: Iniciar o Servidor Abra uma janela de terminal separada e execute o servidor para observar as mensagens de log e estatísticas.
-Bash: ./server
+Bash: ./myserver
 
 #### Passo 2: Executar o Teste de Concorrência Execute o programa, especificando o número total de clientes e a concorrência máxima.
 
 Exemplo: 5000 clientes, 200 a tentar conectar em simultâneo:
 Bash: ./tests/test_concurrent 8080 5000 200
+
+Interpretação dos Resultados:
+
+O teste visa stressar a fila do servidor, onde o Master (produtor) insere o socket descriptor e os Workers (consumidores) o retiram.
+
+1. Sucesso Total: O resultado mais importante é: Conexões com Sucesso (200/503): [X] Conexões com Falha/Erro: 0 Onde X é igual ao número total de requisições. Isto prova que o servidor conseguiu lidar com todas as conexões, quer as tenha servido (200 OK), quer as tenha rejeitado porque a fila estava cheia (503 Service Unavailable).
+
+2. Falha de Sincronização: Se o servidor falhar em receber ou responder à conexão (resultando em connection refused ou timeout do lado do cliente), o valor Conexões com Falha/Erro será maior que 0.
 
 Interpretação dos Resultados:
 

@@ -1,3 +1,28 @@
 Ainda por adaptar neste repo, no meu repo tive que fzr algumas alterações.
 Pra não perder o código que já tens, vês antes.
 
+--- 🏃 A EXECUTAR TESTES DE FUNCIONALIDADE E CONCORRÊNCIA ---
+Lançamento do test_load.sh (Funcional, Carga, Shutdown)...
+>>> 1. Iniciando o servidor em background...
+Servidor iniciado com PID: [UM NÚMERO]
+>>> 2. Testes Funcionais (Status Codes e MIME Types)
+[PASS] Index Serving (/) -> 200 OK
+[PASS] Ficheiro Inexistente -> 404 Not Found
+[PASS] Directory Traversal -> 403 Forbidden
+[PASS] Content-Type (CSS) -> text/css
+>>> 3. Teste de Carga (Apache Bench - 10000 requests, 100 conc.) (Teste 13, 21)
+[PASS] Concorrência AB -> 0 Requisições Falhadas
+Desempenho (Requests/sec): 1234.56 [exemplo]
+>>> 4. Teste de Graceful Shutdown (Teste 23, 24)
+[PASS] Servidor Principal -> Terminou com sucesso.
+[PASS] Processos Zumbis -> 0 Encontrados.
+
+Lançamento do test_concurrent (Stress na Fila IPC: 5000 Clientes, 200 Conc.)...
+--- Teste de Concorrência de Sockets ---
+Porta: 8080, Total Clientes: 5000, Concorrência Máx: 200
+
+--- Resultados ---
+Total de Requisições Enviadas: 5000
+Conexões com Sucesso (200/503): 5000
+Conexões com Falha/Erro (Timeout, etc.): 0
+Tempo Total (s): [UM NÚMERO]

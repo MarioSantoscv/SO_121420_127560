@@ -11,26 +11,26 @@
 #define REQUEST "GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
 #define MAX_BUFFER 2048
 
-// Variáveis globais para contagem
+//Variáveis globais para contagem
 volatile int success_count = 0;
 volatile int failure_count = 0;
 pthread_mutex_t count_mutex; // Mutex para proteger as contagens globais
 
-// Estrutura de argumentos para a thread cliente
+//Estrutura de argumentos para a thread cliente
 typedef struct {
     int port;
 } client_args_t;
 
-// Função executada por cada thread (cliente)
+//Fução executada por cada thread (cliente)
 void* run_client(void* arg) {
     client_args_t* args = (client_args_t*)arg;
     int client_fd;
     struct sockaddr_in server_addr;
     char buffer[MAX_BUFFER];
     ssize_t bytes_received;
-    int client_success = 0; // Estado da thread
+    int client_success = 0;
 
-    // 1. Criar Socket
+    // create Socket
     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         goto end;
     }
@@ -39,21 +39,21 @@ void* run_client(void* arg) {
     server_addr.sin_port = htons(args->port);
     inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);
 
-    // 2. Conectar
+    //connect
     if (connect(client_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         goto end;
     }
 
-    // 3. Enviar Requisição
+    //send requisitation
     if (send(client_fd, REQUEST, strlen(REQUEST), 0) < 0) {
         goto end;
     }
 
-    // 4. Receber Resposta (Ler apenas o cabeçalho)
+    //Recieve
     bytes_received = recv(client_fd, buffer, MAX_BUFFER - 1, 0);
     if (bytes_received > 0) {
         buffer[bytes_received] = '\0';
-        // Sucesso se receber 200 OK (ficheiro servido) ou 503 (fila cheia)
+        // Sucesso if 200 OK ou 503
         if (strstr(buffer, "200 OK") || strstr(buffer, "503 Service Unavailable")) {
             client_success = 1;
         }
@@ -99,7 +99,7 @@ int main(int argc, char* argv[]) {
     time_t start_time = time(NULL);
     int active_threads = 0;
     
-    // Lógica para limitar a concorrência (pool de threads no cliente)
+    // Lógica para limitar a concorrência, i.e pool de threads no cliente
     for (int i = 0; i < num_clients; i++) {
         if (active_threads >= concurrency) {
             // Espera por uma thread mais antiga para liberar slot
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Esperar pelas threads restantes
+    // Wait pelas threads restantes
     for (int i = num_clients - concurrency; i < num_clients; i++) {
         if (i >= 0) {
             pthread_join(threads[i], NULL);
@@ -139,5 +139,7 @@ int main(int argc, char* argv[]) {
     if (success_count + failure_count == num_clients) {
         return 0;
     }
-    return 1; // Falha (contagem incorreta)
+    return 1;
+
+    // Uso de AI chatgpt para acertos de erros.
 }
