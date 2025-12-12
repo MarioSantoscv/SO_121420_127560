@@ -28,6 +28,7 @@ This project implements a multi-process, multi-threaded HTTP/1.1 web server that
 webserver-ipc/
 ├── src/                    # Source code
     ├── main.c              # Program entry point
+    ├── Makefile            # Build system
     ├── master.c/h          # Master process implementation
     ├── worker.c/h          # Worker process implementation
     ├── http.c/h            # HTTP request/response handling
