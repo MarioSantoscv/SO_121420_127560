@@ -82,6 +82,7 @@ static void enqueue_connection(shared_data_t* data,
     sem_post(sems->filled_slots);
 }
 
+//put only the error codes we found necessary for our project consult semrush blog to see more about them
 static void print_stats(const shared_data_t* shared, const semaphores_t* sems) {
     sem_wait(sems->stats_mutex);
     printf("\n------ Server Stats ------\n");
