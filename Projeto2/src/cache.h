@@ -6,8 +6,8 @@
 #include <stddef.h>
 
 
-// Max size of files to cache default: 1MB
-#define MAX_CACHE_FILE_SIZE (1024*1024) 
+// Max size of files to cache default: 10MB
+#define MAX_CACHE_FILE_SIZE (10*1024*1024) 
 
 typedef struct cache_entry {
     char* path;                 // name of file
