@@ -1,72 +1,60 @@
-# Test documentation
-# Projeto2 - Servidor HTTP Concorrente em C
+# Test documentation (Documentação da Suite de Testes)
+Esta diretoria contém a suite de testes concebida para validar a robustez funcional e concorrente do Concurrent HTTP Server.
 
-Este trabalho foi desenvolvido para a disciplina de Sistemas Operativos, com o objetivo de implementar e testar um servidor HTTP concorrente, focando tanto em desempenho como em robustez (síncrona e assinatura segura, gestão de cache, logs, estatísticas e testabilidade).
+Os testes são divididos em dois tipos principais: Testes de Carga e Funcionalidade (Shell Script) e Testes de Sincronização de Baixo Nível (Programa C).
 
-## Estado da Implementação e Validação
+## 1. Pré-requisitos e Setup
+Antes de executar qualquer teste, certifique-se de que a build do servidor e do programa de teste está completa e que o ambiente está configurado.
 
-O código **passa com sucesso a todos os testes funcionais e de stress** descritos abaixo (exceto o teste de graceful shutdown):
+### Requisitos de Ferramentas:
+- Apache Bench (ab): Usado para simular alta carga.
+- curl: Usado para testes funcionais de requisição HTTP.
+- bash: Para execução do script de carga.
+- Servidor Compilado: O executável ./server.
+- Programa de Teste Compilado: O executável ./tests/test_concurrent.
 
-### **Functional Tests**
-- **9. Testa GET requests para vários tipos de ficheiros** (HTML, CSS, JS, imagens):  
-  Pedido correto → resposta com o ficheiro pedido.
-- **10. Verifica os status HTTP (200, 404, 403, 500):**  
-  Cada situação gera o código exato.
-- **11. Testa index de diretórios:**  
-  Pedidos a `/` servem `index.html` como esperado.
-- **12. Verifica Content-Type correto:**  
-  Headers HTTP respeitam o tipo do ficheiro.
+### Compilação e Setup:
+1. Compilar o Servidor e Testes: make all test_concurrent (Isto compila o ./server e o ./tests/test_concurrent.)
+2. Configurar o Ambiente (www/ e config.cfg): make setup
 
-### **Concurrency Tests**
-- **13. Testado com Apache Bench (`ab -n 10000 -c 100`)**:  
-  Suporta alta concorrência sem corromper dados.
-- **14. Verifica ausência de ligações perdidas:**  
-  Nenhuma conexão dropada.
-- **15. Testado com múltiplos clientes (`curl`/`wget` em paralelo):**  
-  Todas as respostas corretas.
-- **16. Estatísticas precisas sob carga:**  
-  Contadores correspondem ao número real de pedidos.
+## 2. Teste de Carga e Funcionalidade (test_load.sh)
+O test_load.sh automatiza os testes de alto nível (HTTP). Ele simula o comportamento de navegadores e ferramentas de carga para validar as funcionalidades básicas, o desempenho sob stress, e os mecanismos de encerramento do servidor.
 
-### **Synchronization Tests**
-- **17. Testado com Helgrind/Thread Sanitizer:**  
-  Sem races detetados, testado usando o comando valgrind --tool=helgrind ./myserver > helgrind_output.txt 2>&1, e procurando por Possible Race Conditions neste ficheiro.
+Execução: bash tests/test_load.sh
 
-- **18. Log file íntegro:**  
-  Não há linhas intercaladas ou escritas em simultâneo, e a rotação funciona lindamente
-- **19. Consistência do cache garantida em todos os testes paralelos.**
-- **20. Contadores de estatísticas estão sempre corretos, sem atualizações perdidas.**
-    Sempre corretos e sempre aparecem de 30 em 30s
+### Casos de Teste Incluídos:
 
-### **Stress Tests**
-- **21. Corre sem problemas durante mais de 5 minutos em carga contínua.**
-    Corremos 3050000 pedidos em 5 minutos e todas as responses foram as esperadas
-- **22. Sem memory leaks (Valgrind).**
-    0 Definetily/Indirectly lost bytes
-- **23. O teste de graceful shutdown ainda não está totalmente implementado, pelo que pode ocorrer o fecho abrupto durante requests em andamento (com algumas respostas 404 ou incompletas neste momento).**
-- **24. Não ficam processos zombie após o shutdown.**
+## 3. Teste de Sincronização de Baixo Nível (test_concurrent)
+Este é um programa C especializado que gera múltiplas threads para abrir e fechar sockets TCP rapidamente. É o método ideal para testar a Fila IPC (Produtor/Consumidor) e a sincronização do Master com os Workers sob grande pressão de conexões.
 
----
+### Execução:
+#### Passo 1: Iniciar o Servidor Abra uma janela de terminal separada e execute o servidor para observar as mensagens de log e estatísticas.
+Bash: ./server
 
-## Testes Automatizados
+#### Passo 2: Executar o Teste de Concorrência Execute o programa, especificando o número total de clientes e a concorrência máxima.
 
-Além dos testes manuais e de stress acima, fornecemos **dois ficheiros de teste automatizados**, que validam:
-- Funcionalidade HTTP (requisições e respostas para diferentes ficheiros/tipos)
-- Consistência de cache
-- Integridade do log e estatísticas
-- Robustez sob concorrência
+Exemplo: 5000 clientes, 200 a tentar conectar em simultâneo:
+Bash: ./tests/test_concurrent 8080 5000 200
 
-O código passa ambos os ficheiros de teste sem qualquer falha.
+Interpretação dos Resultados:
 
----
+O teste visa stressar a fila do servidor, onde o Master (produtor) insere o socket descriptor e os Workers (consumidores) o retiram.
 
-## Observações Finais
+1. Sucesso Total: O resultado mais importante é: Conexões com Sucesso (200/503): [X] Conexões com Falha/Erro: 0 Onde X é igual ao número total de requisições. Isto prova que o servidor conseguiu lidar com todas as conexões, quer as tenha servido (200 OK), quer as tenha rejeitado porque a fila estava cheia (503 Service Unavailable).
 
-Este projeto cumpre os requisitos esperados, implementando:
-- Thread pool concorrente
-- Cache LRU protegida
-- Logging e estatísticas seguros em threads
-- Proteção contra races (validação contínua)
-- Testabilidade (com scripts e benchmarks incluídos)
+2. Falha de Sincronização: Se o servidor falhar em receber ou responder à conexão (resultando em connection refused ou timeout do lado do cliente), o valor Conexões com Falha/Erro será maior que 0.
 
-**Nota:** Falta apenas melhorar a lógica de graceful shutdown para que todos os pedidos em andamento sejam concluídos antes do encerramento completo do servidor.
+## 4. Testes de Integridade (Valgrind e Helgrind)
+Estes testes devem ser executados após garantir que os testes funcionais e de carga passam sem erros, para validar a integridade da memória e da sincronização.
 
+### Teste de Fugas de Memória (valgrind)
+Bash: make valgrind
+
+- Meta: Simule alguma carga (com ab noutra janela) e depois termine o servidor com Ctrl+C.
+- Verificação: O Valgrind deve reportar 0 bytes in 0 blocks are definitely lost e 0 bytes in 0 blocks are possibly lost.
+
+### Teste de Race Conditions (helgrind)
+Bash: make helgrind
+
+- Meta: Simule carga.
+- Verificação: O Helgrind deve reportar ZERO data races (condições de corrida) não-suprimidas. Se existirem, significa que há acesso a memória partilhada (como a Fila IPC, Estatísticas ou Log) sem a proteção adequada de mutex ou semáforo. 
