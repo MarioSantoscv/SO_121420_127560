@@ -101,7 +101,7 @@ static void print_stats(const shared_data_t* shared, const semaphores_t* sems) {
 
 static void stats_loop(const shared_data_t* shared, const semaphores_t* sems) {
     while (keep_running) {
-        sleep(30);
+        sleep(10);
         print_stats(shared, sems);
     }
 }
@@ -110,11 +110,9 @@ void run_master(int listen_fd,
                 shared_data_t* shared,
                 semaphores_t* sems,
                 const server_config_t* config) {
-    // In prefork model the worker processes accept connections directly on the
-    // listening socket (which was created before forking). The master process
-    // will only run the stats printer and wait for shutdown.
+   
 
-    // Start stats printer
+    // Start stats printer(smart)
     pid_t stats_pid = fork();
     if (stats_pid == 0) {
         stats_loop(shared, sems);

@@ -34,6 +34,6 @@ void stats_record_response(shared_data_t* shared, semaphores_t* sems, int status
         shared->stats.status_405++;
     else if (status == 500)
         shared->stats.status_500++;
-    //if needed to add in the future other codes just add here(ask teacher about this)
+    //if needed to add in the future other codes just add here(ask teacher about this) consult semrush blog to see more about them
     sem_post(sems->stats_mutex);
 }
